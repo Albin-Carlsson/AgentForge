@@ -143,6 +143,13 @@ def load_retrieval_rows(run_id: str, stage: str | None = None) -> list[dict]:
         return [dict(r) for r in conn.execute(query + " ORDER BY query_id, rank", params)]
 
 
+def run_config(run_id: str) -> RunConfig:
+    """Rehydrate the frozen config a run was executed with."""
+    stored = load_run(run_id)["config_json"]
+    raw = stored if isinstance(stored, str) else json.dumps(stored)
+    return RunConfig.model_validate_json(raw)
+
+
 def scoring_granularity(tier: str) -> str:
     """Read from the qrels: 'doc_id' for BEIR, 'chunk_id' for span-level labels."""
     with pool().connection() as conn:
@@ -221,6 +228,13 @@ def per_query_metric(run_id: str, metric: str, k: int) -> dict[str, float]:
         raise MeasurementError(f"unknown metric {metric!r}; expected one of {_METRICS}")
 
     run = load_run(run_id)
+    final_k = run_config(run_id).retrieval.final_k
+    if k > final_k:
+        raise MeasurementError(
+            f"cannot score {metric}@{k} on run {run_id}: its config caps retrieval at "
+            f"final_k={final_k}, so every arm is structurally limited to @{final_k}. "
+            f"Score at k<={final_k}, or re-run with a larger final_k."
+        )
     granularity = scoring_granularity(run["tier"])
     gains = _gains(run["tier"], granularity)
     retrieved = _retrieved(run_id, _final_stage(run_id), granularity)
@@ -282,14 +296,7 @@ def compare_runs(baseline_run: str, treatment_run: str, metric: str, k: int) -> 
             f"runs are on different tiers ({base['tier']} vs {treat['tier']}): "
             "a comparison across question sets is not paired"
         )
-    knob = assert_comparable(
-        RunConfig.model_validate_json(json.dumps(base["config_json"])
-                                     if not isinstance(base["config_json"], str)
-                                     else base["config_json"]),
-        RunConfig.model_validate_json(json.dumps(treat["config_json"])
-                                      if not isinstance(treat["config_json"], str)
-                                      else treat["config_json"]),
-    )
+    knob = assert_comparable(run_config(baseline_run), run_config(treatment_run))
     return Comparison(
         knob=knob,
         metric=f"{metric}@{k}",

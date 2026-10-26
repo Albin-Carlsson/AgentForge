@@ -18,26 +18,44 @@ Retrieval metrics are computed from ranks against gold qrels, so this entire
 table costs nothing to produce and can be re-run without limit. That is why
 every parameter here was tuned rather than chosen.
 
-| Arm | recall@10 | nDCG@10 | MRR | index time | p95 query |
+Measured on an M3 MacBook Air: PostgreSQL 18.6, pg_search 0.26.3, pgvector
+0.8.6, embeddings and reranking on MPS. Regenerate with `make report`.
+
+| Arm | recall@10 | nDCG@10 | MRR | knob changed | paired Δ nDCG@10 (95% CI) |
 |---|---|---|---|---|---|
-| BM25 only (`pg_search`) | `[M1]` | `[M1]` | `[M1]` | `[M1]` | `[M1]` |
-| Dense only (`bge-base`, pgvector HNSW) | `[M1]` | `[M1]` | `[M1]` | `[M1]` | `[M1]` |
-| Hybrid (RRF) | `[M1]` | `[M1]` | `[M1]` | `[M1]` | `[M1]` |
-| **Hybrid + cross-encoder rerank** | `[M1]` | `[M1]` | `[M1]` | `[M1]` | `[M1]` |
+| BM25 only (`pg_search`) | 0.8127 | 0.6843 | 0.6519 | — baseline | — |
+| Dense only (`bge-base`, HNSW) | 0.8676 | **0.7400** | **0.7079** | `retriever` | **+0.0556** [+0.0227, +0.0880] |
+| Hybrid (RRF) | **0.8877** | 0.7389 | 0.7008 | `retriever` | −0.0011 [−0.0223, +0.0202] *ns* |
+| + MiniLM rerank (MS MARCO) | 0.8272 | 0.6952 | 0.6665 | `rerank_model` | **−0.0436** [−0.0716, −0.0157] |
+| + `bge-reranker-base` | 0.8488 | 0.7220 | 0.6927 | `rerank_model` | +0.0268 [−0.0006, +0.0546] *ns* |
 
-Each row differs from the one above it by exactly **one** knob, because a delta
+Each row differs from the row above by exactly **one** knob, because a delta
 across two simultaneous changes cannot be attributed to either; the harness
-refuses to tabulate such a comparison (`config.assert_comparable`). Reported
-with a paired bootstrap CI, since at these sample sizes a point estimate alone
-would invite an overclaim.
+refuses to tabulate such a comparison (`config.assert_comparable`). `ns` marks a
+delta whose 95% paired-bootstrap interval includes zero — at n=300, reporting
+those as wins would be the overclaim this project is built to avoid.
 
-Swept as single-knob arms: chunk size (256/512/1024), contextual prefix on/off,
-embedding model (`bge-small` / `bge-base` / `bge-m3`), reranker
-(`MiniLM-L-6` / `bge-reranker-base`), BM25 analyzer (stemming, stopwords), RRF `k`.
+**Three findings, two of them negative:**
 
-> BM25 `k1`/`b` are **not** swept: `pg_search` 0.26.3 does not expose them
-> (Tantivy fixes 1.2/0.75), so the config has no field for them. The analyzer is
-> what is tunable here.
+1. **Dense beats BM25 by +5.6 nDCG@10** (CI excludes zero). Expected.
+2. **Hybrid RRF buys recall, not ordering.** recall@10 rises to 0.8877 — the best
+   of any arm, +7.5 points over BM25 — while nDCG@10 is statistically
+   indistinguishable from dense alone. RRF pulls more relevant documents into the
+   top 10 without ranking them better. Those two metrics disagreeing is the
+   whole reason both are reported.
+3. **Cross-encoder reranking degrades a strong hybrid first stage here.** The MS
+   MARCO MiniLM loses 4.4 nDCG points, significantly. Swapping in a
+   BEIR-appropriate reranker recovers most of that (+2.7 vs MiniLM) but still
+   loses recall@10 significantly against no reranking at all. So this is not
+   "the wrong reranker was chosen" — it is that a 6-layer or base-size
+   cross-encoder trained on other data reorders a good bge-base ranking for the
+   worse. **Reranking therefore ships disabled by default**, and will be
+   re-measured on the arXiv tier at M2, where the domain is different.
+
+> This is why the eval tier was built before the agent graph. Had the pipeline
+> been assembled in bullet order, reranking would have shipped on by default,
+> the résumé would have claimed it as an improvement, and the claim would have
+> been false by 4 points.
 
 ### End-to-end — 40 hand-written arXiv questions, frozen before the system was built
 
@@ -139,8 +157,16 @@ CI can run it on every push.
 
 ## Honest limitations
 
-- `[M6]` — negative results and things that did not work go here, including any
-  arm where the sophisticated option lost to the simple one.
+- **Cross-encoder reranking lost to not reranking** on SciFact, with both models
+  tried (see Results, finding 3). It ships disabled, pending re-measurement on
+  the arXiv tier.
+- **An earlier version of this table was wrong.** The first ablation run scored
+  `recall@10` on arms configured with `final_k=8`, which structurally capped
+  every arm at `recall@8` and made reranking look worse than it was. The harness
+  now refuses to score at a cutoff deeper than the pipeline's `final_k`
+  (`MeasurementError`), and the ladder runs at `final_k=20`. The corrected
+  numbers still show reranking losing, but by less.
+- `[M6]` — further negative results go here.
 - The 40-question set was written by one person (me) and frozen before building.
   That removes tuning-to-the-test but not the bias in which questions got asked.
   The SciFact tier exists partly as an independent check on that.

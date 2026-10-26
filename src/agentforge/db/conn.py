@@ -72,6 +72,17 @@ def server_info() -> dict[str, str]:
     return info
 
 
+def close_pool() -> None:
+    """Close the pool and clear the cache. Called on CLI exit.
+
+    Without this, psycopg's pool workers outlive the interpreter's shutdown
+    window and print "couldn't stop thread" warnings over the command's output.
+    """
+    if pool.cache_info().currsize:
+        pool().close()
+        pool.cache_clear()
+
+
 def healthcheck() -> dict[str, str]:
     try:
         return server_info()

@@ -76,7 +76,13 @@ class RetrievalConfig(_Frozen):
     rrf_k: int = 60                  # RRF: rank-based, so BM25 and cosine never get added
     bm25_weight: float = 1.0
     dense_weight: float = 1.0
-    rerank_model: str | None = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    # Measured OFF by default. On BEIR SciFact (n=300) the MS MARCO MiniLM cost
+    # 4.4 nDCG@10 points against no reranking (95% CI [-0.072, -0.016]) and
+    # bge-reranker-base still lost recall@10 significantly. The reranker stays
+    # implemented and stays an arm; it does not stay on. To be re-measured on
+    # the arXiv tier at M2, where the domain differs.
+    # See results/retrieval-scifact.md and docs/DESIGN.md (Postscript).
+    rerank_model: str | None = None
     rerank_top_k: int = 50           # candidates fed to the cross-encoder
     final_k: int = 8                 # chunks handed to the generator
 

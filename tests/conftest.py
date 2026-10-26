@@ -41,12 +41,30 @@ def probe_corpus() -> str:
     import json
 
     documents = [
-        ("p1", "Hybrid retrieval", "Hybrid retrieval combines BM25 and dense scores, "
-                                   "evaluated on BEIR SciFact with nDCG@10."),
-        ("p2", "Cross-encoder reranking", "A cross-encoder rescores candidates jointly "
-                                          "with the query and improves precision."),
-        ("p3", "Dense bi-encoders", "Bi-encoders embed queries and passages separately, "
-                                    "which is fast but weaker on rare identifiers."),
+        (
+            "p1",
+            "Hybrid retrieval",
+            (
+                "Hybrid retrieval combines BM25 and dense scores, "
+                "evaluated on BEIR SciFact with nDCG@10."
+            ),
+        ),
+        (
+            "p2",
+            "Cross-encoder reranking",
+            (
+                "A cross-encoder rescores candidates jointly with the query "
+                "and improves precision."
+            ),
+        ),
+        (
+            "p3",
+            "Dense bi-encoders",
+            (
+                "Bi-encoders embed queries and passages separately, "
+                "which is fast but weaker on rare identifiers."
+            ),
+        ),
     ]
     with pool().connection() as conn, conn.cursor() as cur:
         cur.execute(

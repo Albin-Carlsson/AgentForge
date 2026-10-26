@@ -23,7 +23,13 @@ TEST_MODEL = "BAAI/bge-small-en-v1.5"
 
 
 def make_config(**retrieval_overrides) -> RunConfig:
-    base = {"embed_model": TEST_MODEL, "candidate_k": 10, "final_k": 3, "rerank_top_k": 10}
+    base = {
+        "embed_model": TEST_MODEL,
+        "candidate_k": 10,
+        "final_k": 3,
+        "rerank_top_k": 10,
+        "rerank_model": "cross-encoder/ms-marco-MiniLM-L-6-v2",
+    }
     return RunConfig(
         ingest=IngestConfig(corpus_id="pytest_probe"),
         retrieval=RetrievalConfig(**(base | retrieval_overrides)),
@@ -74,8 +80,7 @@ def test_hybrid_retrieves_every_relevant_document_on_the_probe_tier(indexed):
 
 
 def test_granularity_is_read_from_the_qrels(indexed):
-    config = make_config()
-    run = harness.execute_retrieval_run(config, tier=indexed, arm_label="hybrid+rerank")
+    """BEIR judges documents; the arXiv tier will judge spans. Never assumed."""
     assert harness.scoring_granularity(indexed) == "doc_id"
 
 
@@ -131,3 +136,18 @@ def test_compare_runs_reports_a_paired_delta(indexed):
     comparison = harness.compare_runs(a.run_id, b.run_id, metric="ndcg", k=3)
     assert comparison.knob == "retrieval.rerank_model"
     assert comparison.delta.n == 3
+
+
+def test_scoring_beyond_final_k_is_refused(indexed):
+    """recall@10 is meaningless when the pipeline returns at most 8 chunks.
+
+    This guard exists because the first real ablation run reported recall@10 for
+    arms configured with final_k=8, which structurally capped every arm at
+    recall@8 and made the reranker look worse than it was.
+    """
+    config = make_config(retriever="hybrid", final_k=3)
+    run = harness.execute_retrieval_run(config, tier=indexed, arm_label="hybrid+rerank")
+    with pytest.raises(MeasurementError, match="final_k"):
+        harness.score_run(run.run_id, k=10)
+    # At or below final_k it scores normally.
+    assert harness.score_run(run.run_id, k=3)["n_queries"] == 3

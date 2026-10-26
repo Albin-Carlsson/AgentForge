@@ -274,3 +274,36 @@ of a surprising finding.
 repo and a number in the README. The biggest risk is not an unimpressive project
 but one caught overstatement — the moment "datasets" or "BM25" turns out not to
 exist as claimed, every other number becomes suspect.
+
+
+---
+
+## Postscript: where the measurements contradicted this design
+
+Kept deliberately, because a design document that records only its correct
+predictions is not evidence of anything.
+
+**Decision 8 predicted hybrid retrieval would win on a technical corpus**, on the
+reasoning that papers are dense with rare exact identifiers ("BEIR", "nDCG@10")
+where BM25 is strong and dense retrieval weak. Measured on SciFact: hybrid RRF
+*does* win on recall@10 (0.8877, best of any arm, +7.5 over BM25) but is
+statistically indistinguishable from dense-alone on nDCG@10 (−0.0011, CI
+[−0.0223, +0.0202]). The mechanism was half right: fusion improves which
+documents are found, not the order they are returned in. That distinction was
+only visible because both metrics were reported.
+
+**Decision 11 assumed the cross-encoder would earn its latency.** It did not. On
+SciFact the MS MARCO MiniLM costs 4.4 nDCG@10 points (CI [−0.072, −0.016]) and
+`bge-reranker-base` still loses recall@10 significantly against no reranking.
+Reranking now ships disabled, and the first bullet of the résumé claims hybrid
+retrieval rather than reranking as the measured improvement. Keeping the
+reranker implemented but off is the honest position: the code exists, the arm is
+in the table, and the number says not to use it on this corpus.
+
+**The harness found a bug in itself before it found anything about the system.**
+The first ablation scored recall@10 against arms capped at `final_k=8`. Both
+errors -- the cap and the mismatch -- were invisible in aggregate: the arms still
+produced plausible, internally consistent numbers. What exposed it was the
+reranked arm landing within 0.0001 of the BM25 arm, which is not a coincidence
+any mechanism explains. `harness.per_query_metric` now raises
+`MeasurementError` when asked for a cutoff deeper than the run's `final_k`.

@@ -100,7 +100,7 @@ def percentile(values: list[float], q: float) -> float:
     if not values:
         raise ValueError("percentile of an empty sample")
     ordered = sorted(values)
-    index = min(int(round(q / 100.0 * (len(ordered) - 1))), len(ordered) - 1)
+    index = min(round(q / 100.0 * (len(ordered) - 1)), len(ordered) - 1)
     return ordered[index]
 
 

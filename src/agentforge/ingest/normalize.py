@@ -43,9 +43,14 @@ _PUNCT = {
 # Zero-width and formatting characters that carry no textual meaning.
 _INVISIBLE = dict.fromkeys(
     [
-        "­",  # soft hyphen -- PDF line-break artefact
-        "​", "‌", "‍", "⁠", "﻿",
-        "‎", "‏",
+        "\u00ad",  # soft hyphen -- the PDF line-break artefact
+        "\u200b",  # zero-width space
+        "\u200c",  # zero-width non-joiner
+        "\u200d",  # zero-width joiner
+        "\u2060",  # word joiner
+        "\ufeff",  # BOM / zero-width no-break space
+        "\u200e",  # left-to-right mark
+        "\u200f",  # right-to-left mark
     ],
     "",
 )

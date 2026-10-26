@@ -20,7 +20,15 @@ TEST_MODEL = "BAAI/bge-small-en-v1.5"
 
 
 def cfg(**overrides) -> RetrievalConfig:
-    base = {"embed_model": TEST_MODEL, "candidate_k": 10, "final_k": 2, "rerank_top_k": 10}
+    base = {
+        "embed_model": TEST_MODEL,
+        "candidate_k": 10,
+        "final_k": 2,
+        "rerank_top_k": 10,
+        # Named explicitly: reranking is off by default since the SciFact
+        # measurement, so a test of the rerank path must ask for it.
+        "rerank_model": "cross-encoder/ms-marco-MiniLM-L-6-v2",
+    }
     return RetrievalConfig(**(base | overrides))
 
 

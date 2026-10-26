@@ -22,7 +22,7 @@ from agentforge.ingest.normalize import canonical, quote_found
         ("spaced out", "spaced out"),                            # NBSP
         ("multi   \n\t space", "multi space"),                        # whitespace collapse
         ("  padded  ", "padded"),                                     # strip
-        ("zero​width", "zerowidth"),                             # ZWSP removed
+        ("zero\u200bwidth", "zerowidth"),                             # ZWSP removed
     ],
 )
 def test_canonical(raw, expected):

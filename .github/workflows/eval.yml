@@ -1,0 +1,68 @@
+# The retrieval tier is the CI gate because it needs no API key and costs
+# nothing: recall@k and nDCG@k are computed from ranks against gold qrels, so
+# the whole ablation runs offline. That is what makes a real quality gate
+# affordable on every push, rather than a lint-only pipeline pretending to be one.
+name: eval
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  retrieval-tier:
+    runs-on: ubuntu-latest
+
+    services:
+      db:
+        image: paradedb/paradedb:latest
+        env:
+          POSTGRES_USER: agentforge
+          POSTGRES_PASSWORD: agentforge
+          POSTGRES_DB: agentforge
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U agentforge -d agentforge"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      AF_PG_DSN: postgresql://agentforge:agentforge@localhost:5433/agentforge
+      AF_MODEL_DIR: ./models
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Cache local models
+        uses: actions/cache@v4
+        with:
+          path: ./models
+          key: models-${{ hashFiles('pyproject.toml') }}
+
+      - run: pip install -e ".[dev]"
+
+      - run: python -m agentforge.cli init
+
+      - run: python -m ruff check src tests
+
+      # Tests fail rather than skip when the database is absent: a skipped test
+      # is a silent pass.
+      - run: python -m pytest tests/ -q
+
+      # A 300-document slice keeps CI minutes sane while still exercising the
+      # full ladder end to end.
+      - name: Retrieval ablation (300-doc slice)
+        run: |
+          python -m agentforge.cli ingest-scifact --limit 300
+          python -m agentforge.cli index --embed-model BAAI/bge-small-en-v1.5
+          python -m agentforge.cli eval-retrieval --embed-model BAAI/bge-small-en-v1.5
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: retrieval-ablation
+          path: results/
