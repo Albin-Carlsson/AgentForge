@@ -1,0 +1,43 @@
+# Two services is the whole deployment: one database, one app.
+# ParadeDB bundles pg_search (real Okapi BM25, Tantivy-backed) and pgvector in
+# one image, so the lexical and dense indexes live in the same Postgres under the
+# same transaction -- no dual-write path between two stores to keep consistent.
+services:
+  db:
+    image: paradedb/paradedb:latest
+    container_name: agentforge-db
+    environment:
+      POSTGRES_USER: agentforge
+      POSTGRES_PASSWORD: agentforge
+      POSTGRES_DB: agentforge
+    ports:
+      - "5433:5432"
+    volumes:
+      # Postgres 18+ (which ParadeDB now ships) stores data in a
+      # major-version subdirectory, so the mount goes one level up.
+      - pgdata:/var/lib/postgresql
+      - ./src/agentforge/db/schema.sql:/docker-entrypoint-initdb.d/10-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agentforge -d agentforge"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  api:
+    build: .
+    container_name: agentforge-api
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      AF_PG_DSN: postgresql://agentforge:agentforge@db:5432/agentforge
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
+      LANGFUSE_HOST: ${LANGFUSE_HOST:-https://cloud.langfuse.com}
+    ports:
+      - "8000:8000"
+    profiles: ["serve"]
+
+volumes:
+  pgdata:

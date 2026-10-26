@@ -1,0 +1,40 @@
+[project]
+name = "agentforge"
+version = "0.1.0"
+description = "Multi-agent research assistant with a validated evaluation harness"
+requires-python = ">=3.13"
+dependencies = [
+    "pydantic>=2.9",
+    "pydantic-settings>=2.6",
+    "psycopg[binary,pool]>=3.2",
+    "sentence-transformers>=3.3",
+    "torch>=2.5",
+    "numpy>=2.1",
+    "ir-datasets>=0.5.9",
+    "pymupdf>=1.24",
+    "trafilatura>=2.0",
+    "anthropic>=0.69",
+    "langgraph>=0.2.60",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "langfuse>=2.54",
+    "tenacity>=9.0",
+    "tabulate>=0.9",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.3", "pytest-asyncio>=0.24", "ruff>=0.8"]
+
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

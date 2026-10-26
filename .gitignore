@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+data/beir/
+data/pdfs/
+data/snapshots/
+.cache/
+models/
+*.sqlite
+.DS_Store
+.pytest_cache/
