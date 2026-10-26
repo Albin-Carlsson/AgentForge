@@ -36,6 +36,7 @@ from agentforge.errors import IngestError
 
 API = "http://export.arxiv.org/api/query"
 AR5IV = "https://ar5iv.labs.arxiv.org/html"
+ARXIV_HTML = "https://arxiv.org/html"
 USER_AGENT = "AgentForge/0.1 (research corpus builder; contact via repo)"
 
 # arXiv's stated rate limit. Not negotiable, and not the caller's problem.
@@ -69,6 +70,15 @@ class PaperMeta:
     @property
     def ar5iv_url(self) -> str:
         return ar5iv_url(self.base_id)
+
+    @property
+    def html_url(self) -> str:
+        """arXiv's own LaTeXML rendering -- the parser's ground truth.
+
+        Preferred over ar5iv, which has no rendering for recent papers and
+        silently redirects to the abstract page instead of 404ing.
+        """
+        return f"{ARXIV_HTML}/{self.arxiv_id}"
 
 
 def ar5iv_url(base_id: str) -> str:

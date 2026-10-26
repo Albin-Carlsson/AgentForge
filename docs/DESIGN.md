@@ -307,3 +307,28 @@ produced plausible, internally consistent numbers. What exposed it was the
 reranked arm landing within 0.0001 of the BM25 arm, which is not a coincidence
 any mechanism explains. `harness.per_query_metric` now raises
 `MeasurementError` when asked for a cutoff deeper than the run's `final_k`.
+
+
+**Decision 7 said the parser would be measured. Measuring it changed what the
+measurement was.** Three times, the first number out of the fidelity harness
+described the harness rather than the parser:
+
+1. ar5iv was the obvious ground truth and the wrong one -- it has no rendering
+   for recent papers and *redirects to the abstract page* instead of returning
+   404, so every paper scored as unmeasurable. arXiv's own LaTeXML rendering
+   works; the absence of section-title classes is now what detects a missing
+   rendering.
+2. "Abstract", "Keywords" and "References" scored as spurious parser output on
+   every paper, because LaTeXML gives them their own classes rather than
+   `ltx_title_section`. They are real sections.
+3. Roman numerals without a trailing period went unstripped, so one paper the
+   parser had read correctly scored recall 0.025 -- "I Introduction" against
+   "I. INTRODUCTION".
+
+And one judgement call worth defending rather than hiding: run-in
+`\paragraph{}` labels are excluded from the recall denominator. They are real
+structure in the author's source, but they render inline with their prose, so a
+line-based PDF parser cannot detect them by construction. On arXiv:2610.32318
+they are 25 of 38 LaTeXML headings and alone pushed apparent recall to 0.158.
+Excluding them is defining the metric to match the claim being made -- that the
+parser recovers section structure, not that it recovers every run-in label.

@@ -109,6 +109,126 @@ def _write_ladder(tier: str, runs: list[tuple[str, str]], k: int, metric: str) -
     return out
 
 
+def cmd_measure_parser(args: argparse.Namespace) -> int:
+    """Score the PDF parser against arXiv's own LaTeXML rendering.
+
+    Two metrics, because they fail differently: section recall/precision says
+    how well heading detection agrees with the author's sectioning, and text
+    coverage says whether any text is being lost. A missed heading merges a
+    section into its predecessor -- coarser citations, nothing unretrievable --
+    while uncovered text is never chunked at all.
+
+    A paper whose rendering cannot be fetched is a COVERAGE GAP in the
+    measurement, counted and reported. Text coverage needs no network and is
+    reported for every paper regardless.
+    """
+    from agentforge.errors import IngestError
+    from agentforge.ingest.fidelity import (
+        fetch_latexml_html,
+        headings_from_latexml,
+        run_in_headings_from_latexml,
+        score_sections,
+        text_coverage,
+    )
+    from agentforge.ingest.pdf import parse_pdf
+
+    pdfs = sorted(pathlib.Path(args.pdf_dir).glob("*.pdf"))
+    if not pdfs:
+        raise SystemExit(f"no PDFs in {args.pdf_dir}")
+
+    rows: list[dict[str, object]] = []
+    for path in pdfs:
+        parsed = parse_pdf(path)
+        found = [section.section_path for section in parsed.sections]
+        row: dict[str, object] = {
+            "paper": path.stem,
+            "pages": parsed.n_pages,
+            "found": len(found),
+            "coverage": text_coverage(parsed.sections, len(parsed.text)),
+            "recall": None,
+            "precision": None,
+            "truth": 0,
+            "run_in": 0,
+            "gap": "",
+        }
+        try:
+            html = fetch_latexml_html(path.stem)
+        except IngestError as exc:
+            html, row["gap"] = None, f"fetch failed: {str(exc)[:60]}"
+        if html is not None:
+            scores = score_sections(found, headings_from_latexml(html))
+            row.update(
+                recall=scores.recall,
+                precision=scores.precision,
+                truth=scores.n_truth,
+                run_in=len(run_in_headings_from_latexml(html)),
+            )
+            if scores.recall is None:
+                row["gap"] = "no section tags in rendering"
+        elif not row["gap"]:
+            row["gap"] = "no LaTeXML rendering"
+        rows.append(row)
+        print(
+            f"{row['paper']:<14} coverage={row['coverage']:.3f} "
+            + (
+                f"recall={row['recall']:.3f} precision={row['precision']:.3f} "
+                f"(truth {row['truth']}, found {row['found']})"
+                if row["recall"] is not None
+                else f"[{row['gap']}] found {row['found']}"
+            )
+        )
+
+    scored = [r for r in rows if r["recall"] is not None]
+    body = [
+        "# PDF parser fidelity",
+        "",
+        "Ground truth is arXiv's own LaTeXML rendering (`arxiv.org/html/<id>`), so",
+        "the reference sectioning comes from the authors' LaTeX rather than from how",
+        "the PDF happens to look. No labelling, no cost.",
+        "",
+        "**Read the two metrics separately.** A missed heading merges its body into the",
+        "previous section: citations get coarser, but every character is still chunked",
+        "and retrievable. Uncovered text is the failure that would actually invalidate a",
+        "retrieval number. Coverage below 1.0 is expected -- title, authors and",
+        "affiliations precede the first heading and belong to no section.",
+        "",
+        "Run-in `\\paragraph{}` labels are counted but NOT scored: they render inline",
+        "with their prose, so a line-based parser cannot see them. On one paper they are",
+        "25 of 38 LaTeXML headings, and including them would have reported the metric's",
+        "definition rather than the parser's quality.",
+        "",
+        "| Paper | pages | text coverage | section recall | section precision | truth | found | run-in (unscored) | note |",
+        "|---|---|---|---|---|---|---|---|---|",
+    ]
+    for r in rows:
+        recall = f"{r['recall']:.3f}" if r["recall"] is not None else "—"
+        precision = f"{r['precision']:.3f}" if r["precision"] is not None else "—"
+        body.append(
+            f"| {r['paper']} | {r['pages']} | {r['coverage']:.3f} | {recall} | "
+            f"{precision} | {r['truth'] or '—'} | {r['found']} | {r['run_in'] or '—'} | "
+            f"{r['gap'] or ''} |"
+        )
+    body.append("")
+    mean_coverage = sum(float(r["coverage"]) for r in rows) / len(rows)
+    body.append(f"- Papers measured: {len(rows)}; with ground truth: {len(scored)}")
+    body.append(f"- Mean text coverage: **{mean_coverage:.3f}**")
+    if scored:
+        body.append(
+            f"- Mean section recall: **{sum(float(r['recall']) for r in scored)/len(scored):.3f}**"
+        )
+        body.append(
+            "- Mean section precision: "
+            f"**{sum(float(r['precision']) for r in scored)/len(scored):.3f}**"
+        )
+    RESULTS.mkdir(exist_ok=True)
+    out = RESULTS / "parser-fidelity.md"
+    out.write_text("\n".join(body) + "\n")
+    print()
+    print("\n".join(body[-4:]))
+    print(f"written to {out}")
+    return 0
+
+
 def cmd_report(args: argparse.Namespace) -> int:
     """Regenerate the ladder table from stored runs, without re-running anything."""
     runs: list[tuple[str, str]] = []
@@ -169,6 +289,10 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("-k", type=int, default=10)
     p.add_argument("--metric", default="ndcg", choices=("recall", "ndcg", "mrr"))
     p.set_defaults(func=cmd_eval_retrieval)
+
+    p = sub.add_parser("measure-parser", help="score the PDF parser against arXiv HTML")
+    p.add_argument("--pdf-dir", dest="pdf_dir", default="data/pdfs")
+    p.set_defaults(func=cmd_measure_parser)
 
     p = sub.add_parser("report", help="regenerate the table from stored runs")
     p.add_argument("--tier", default="scifact")

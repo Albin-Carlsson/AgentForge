@@ -69,6 +69,34 @@ The no-retrieval control is not filler: it quantifies how much the model already
 knows cold, which is the only way to attribute any improvement to retrieval
 rather than to pretraining.
 
+### PDF parser, measured against arXiv's own LaTeXML rendering
+
+Heading detection is a font-geometry heuristic, so the only honest answer to
+"how often is it wrong?" is a number. Ground truth is `arxiv.org/html/<id>`,
+LaTeXML-rendered from the authors' source — no labelling, no cost. 6 papers so
+far (`make measure-parser`, full table in [results/parser-fidelity.md](results/parser-fidelity.md)).
+
+| Metric | Value | What it bounds |
+|---|---|---|
+| **Text coverage** | **0.978** | The one that matters for retrieval: 97.8% of extracted characters land inside some section, so almost nothing is unchunked and unretrievable. |
+| Section recall | 0.497 | Of the authors' block-level headings, half are detected. |
+| Section precision | 0.822 | Of detected headings, 82% are real. |
+
+**These two metrics fail differently, and conflating them misreads the parser.**
+A missed heading does not lose text — the body beneath it merges into the
+preceding section, so every character is still chunked, embedded and citable;
+what degrades is how precisely a citation can name *which* section it came from.
+Uncovered text is the failure that would actually invalidate a retrieval number,
+and it is at 2.2% (the title, authors and affiliations, which precede the first
+heading and belong to no section by design).
+
+Recall splits cleanly by paper style: papers with numbered headings score 0.79
+and 0.95, while papers with deep appendix subsectioning score 0.18–0.32. Run-in
+`\paragraph{}` labels are counted but **not scored** — they render inline with
+their prose, so a line-based parser cannot see them, and on one paper they are
+25 of 38 LaTeXML headings. Including them reported 0.158 for that paper, which
+described the metric's definition rather than the parser's quality.
+
 ### The judge, validated
 
 | Judge model | κ vs reference labels | agreement | cost/run |
@@ -172,6 +200,10 @@ CI can run it on every push.
   now refuses to score at a cutoff deeper than the pipeline's `final_k`
   (`MeasurementError`), and the ladder runs at `final_k=20`. The corrected
   numbers still show reranking losing, but by less.
+- **The PDF parser detects about half the authors' section headings** (recall
+  0.497), and considerably fewer on papers with deep appendix subsectioning.
+  Text coverage stays at 0.978, so this costs citation granularity rather than
+  retrievability — but it is a real limit, measured rather than estimated.
 - `[M6]` — further negative results go here.
 - The 40-question set was written by one person (me) and frozen before building.
   That removes tuning-to-the-test but not the bias in which questions got asked.
