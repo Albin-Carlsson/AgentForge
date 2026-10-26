@@ -20,6 +20,8 @@ dependencies = [
     "langfuse>=2.54",
     "tenacity>=9.0",
     "tabulate>=0.9",
+    # Used directly: the python.org framework build has an empty trust store.
+    "certifi>=2024.8.30",
 ]
 
 [project.optional-dependencies]
@@ -38,3 +40,8 @@ target-version = "py313"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# PyMuPDF's SWIG bindings emit DeprecationWarnings on import that we cannot fix
+# from here and that bury real output.
+filterwarnings = [
+    "ignore:builtin type .* has no __module__ attribute:DeprecationWarning",
+]
