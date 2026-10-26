@@ -170,3 +170,38 @@ def test_splitting_prefers_sentence_boundaries():
     sections = [Section(section_path="6. S", text=text, page=1, char_offset=0)]
     chunks = chunk(sections, chunk_tokens=7, overlap_tokens=0)
     assert all(c.text.endswith(".") for c in chunks), [c.text for c in chunks]
+
+
+def test_an_oversized_sentence_with_irregular_whitespace_keeps_its_offsets():
+    """Regression: real PDF text contains newlines between extracted lines.
+
+    _split_oversized rejoined words with " ".join() and then looked that string
+    up in the original, which raised ValueError('substring not found') on the
+    first real paper ingested. Offsets must index the ORIGINAL text, whitespace
+    and all, or a citation cannot resolve.
+    """
+    # One long "sentence" with no terminal punctuation, wrapped like a PDF.
+    body = "\n".join(" ".join(f"w{i + j}" for j in range(8)) for i in range(0, 80, 8))
+    sections = [Section(section_path="1. Long", text=body, page=1, char_offset=17)]
+    document = build_document(sections)
+
+    chunks = chunk(sections, chunk_tokens=12, overlap_tokens=0)
+    assert len(chunks) >= 4
+    for c in chunks:
+        assert document[c.char_start : c.char_end] == c.text, repr(c.text)
+        assert c.n_tokens <= 12
+
+    # Nothing is dropped.
+    seen = {w for c in chunks for w in c.text.split()}
+    assert seen == set(body.split())
+
+
+def test_oversized_sentence_split_preserves_internal_newlines():
+    body = "alpha beta\ngamma delta\nepsilon zeta eta theta"
+    sections = [Section(section_path="1. NL", text=body, page=1, char_offset=0)]
+    chunks = chunk(sections, chunk_tokens=4, overlap_tokens=0)
+    rebuilt = " ".join(c.text for c in chunks)
+    # The newlines survive inside chunk text, because quote matching
+    # canonicalises both sides and needs them for hyphen rejoining.
+    assert any("\n" in c.text for c in chunks), [c.text for c in chunks]
+    assert set(rebuilt.split()) == set(body.split())

@@ -71,6 +71,22 @@ def cmd_ingest_scifact(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_ingest_arxiv(args: argparse.Namespace) -> int:
+    from agentforge.ingest import papers
+
+    report = papers.ingest(
+        IngestConfig(corpus_id=papers.CORPUS_ID),
+        n_papers=args.n,
+        embed_model=args.embed_model,
+    )
+    print(json.dumps(report.__dict__, indent=2, default=str))
+    print(
+        f"\ncontamination check: published {report.published_from} .. "
+        f"{report.published_to} (must post-date the generator's training cutoff)"
+    )
+    return 0
+
+
 def cmd_index(args: argparse.Namespace) -> int:
     config = _config(args.corpus, embed_model=args.embed_model)
     state = lexical.build_index(config.retrieval)
@@ -276,6 +292,11 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("ingest-scifact", help="load the BEIR SciFact tier")
     p.add_argument("--limit", type=int, default=None)
     p.set_defaults(func=cmd_ingest_scifact)
+
+    p = sub.add_parser("ingest-arxiv", help="fetch, parse, chunk and store arXiv papers")
+    p.add_argument("-n", type=int, default=300, help="number of papers")
+    p.add_argument("--embed-model", dest="embed_model", default="BAAI/bge-base-en-v1.5")
+    p.set_defaults(func=cmd_ingest_arxiv)
 
     p = sub.add_parser("index", help="build the BM25 and dense indexes")
     p.add_argument("--corpus", default="scifact")

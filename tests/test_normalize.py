@@ -59,3 +59,41 @@ def test_partial_word_overlap_is_still_a_match_only_if_substring():
     chunk = "cross-encoder reranking improved nDCG@10 by six points"
     assert quote_found("reranking improved nDCG@10", chunk)
     assert not quote_found("reranking improved nDCG@20", chunk)
+
+
+# --------------------------------------------------------------------------
+# Control characters.
+#
+# Regression from the first real arXiv ingest: PDF text extraction emits NUL
+# (0x00) bytes, and Postgres text columns reject them outright
+# (psycopg.DataError: PostgreSQL text fields cannot contain NUL (0x00) bytes).
+# They carry no textual meaning, so canonicalisation removes them -- applied to
+# both the stored chunk and the model's quote, as with every other rule here.
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        ("before\x00after", "beforeafter"),            # NUL
+        ("bell\x07char", "bellchar"),                  # BEL
+        ("vert\x0btab", "vert tab"),                   # VT is whitespace
+        ("form\x0cfeed", "form feed"),                 # FF is whitespace
+        ("esc\x1bseq", "escseq"),                      # ESC
+        ("del\x7fchar", "delchar"),                    # DEL
+        ("keep\ttab", "keep tab"),                     # TAB survives as space
+        ("keep\nnewline", "keep newline"),             # LF survives as space
+    ],
+)
+def test_control_characters_are_removed_or_treated_as_whitespace(raw, expected):
+    assert canonical(raw) == expected
+
+
+def test_nul_bytes_do_not_survive_canonicalisation():
+    """The specific failure: a NUL anywhere in a chunk aborted the whole ingest."""
+    assert "\x00" not in canonical("text with \x00 a nul byte")
+
+
+def test_quote_matching_still_works_across_a_stripped_nul():
+    chunk_text = "We evaluate on\x00 BEIR's SciFact split."
+    assert quote_found("We evaluate on BEIR's SciFact split.", chunk_text)

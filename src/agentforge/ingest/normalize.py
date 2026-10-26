@@ -55,6 +55,12 @@ _INVISIBLE = dict.fromkeys(
     "",
 )
 
+# C0/C1 control characters that are not whitespace. PDF extraction emits these
+# -- NUL in particular -- and Postgres text columns reject NUL outright, which
+# aborted the first real ingest. They carry no textual meaning.
+# \t \n \r \v \f are deliberately absent: they are whitespace and are collapsed below.
+_CONTROL = re.compile(r"[\x00-\x08\x0e-\x1f\x7f-\x9f]")
+
 _WHITESPACE = re.compile(r"\s+")
 
 # A hyphen followed by a line break is a word split across lines: "retriev-\nal".
@@ -74,6 +80,7 @@ def canonical(text: str) -> str:
     text = unicodedata.normalize("NFC", text)
     text = _HYPHEN_BREAK.sub(r"\1\2", text)
     text = text.translate(_TRANSLATION)
+    text = _CONTROL.sub("", text)
     text = _WHITESPACE.sub(" ", text)
     return text.strip()
 

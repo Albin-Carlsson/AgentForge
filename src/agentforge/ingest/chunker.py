@@ -37,6 +37,9 @@ TokenCounter = Callable[[str], int]
 # chunk that ends mid-clause reads badly as a citation.
 _SENTENCE_END = re.compile(r"(?<=[.!?])\s+(?=[\"'(\[]?[A-Z0-9])")
 
+# Runs of non-whitespace. Used to split by OFFSET rather than by rejoining.
+_WORD = re.compile(r"\S+")
+
 
 @dataclass(frozen=True)
 class Section:
@@ -95,25 +98,38 @@ def _split_oversized(piece: _Piece, budget: int, counter: TokenCounter) -> list[
 
     Dropping it would make part of a paper permanently unretrievable, so it is
     split even though the result may read mid-clause.
+
+    Slicing is done by OFFSET, never by rejoining words. An earlier version
+    rebuilt each piece with " ".join() and then looked the result up in the
+    original with str.index -- which works on single-spaced test fixtures and
+    raises ValueError on the first real paper, because extracted PDF text
+    carries newlines between lines. Offsets must index the original text
+    verbatim or `text[char_start:char_end] == chunk.text` stops holding, and
+    with it every citation.
     """
+    spans = [(m.start(), m.end()) for m in _WORD.finditer(piece.text)]
+    if not spans:
+        return [piece]
+
     out: list[_Piece] = []
-    words = piece.text.split()
-    current: list[str] = []
-    cursor = piece.start
-    for word in words:
-        candidate = [*current, word]
-        if current and counter(" ".join(candidate)) > budget:
-            text = " ".join(current)
-            start = piece.text.index(text, cursor - piece.start) + piece.start
-            out.append(_Piece(text=text, start=start, tokens=counter(text)))
-            cursor = start + len(text)
-            current = [word]
-        else:
-            current = candidate
-    if current:
-        text = " ".join(current)
-        start = piece.text.index(text, cursor - piece.start) + piece.start
-        out.append(_Piece(text=text, start=start, tokens=counter(text)))
+    group_start = 0
+    for index in range(1, len(spans)):
+        candidate = piece.text[spans[group_start][0] : spans[index][1]]
+        if counter(candidate) > budget:
+            text = piece.text[spans[group_start][0] : spans[index - 1][1]]
+            out.append(
+                _Piece(
+                    text=text,
+                    start=piece.start + spans[group_start][0],
+                    tokens=counter(text),
+                )
+            )
+            group_start = index
+
+    tail = piece.text[spans[group_start][0] : spans[-1][1]]
+    out.append(
+        _Piece(text=tail, start=piece.start + spans[group_start][0], tokens=counter(tail))
+    )
     return out
 
 
