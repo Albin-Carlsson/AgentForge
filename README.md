@@ -144,11 +144,17 @@ them would hide the exact failure this project exists to count.
 
 ```bash
 cp .env.example .env            # ANTHROPIC_API_KEY only needed from M3 on
-docker compose up -d db         # ParadeDB: pg_search + pgvector, one container
-make install                    # local models: ~530 MB total
+make install                    # local models: ~530 MB, downloaded on first use
+make db                         # ParadeDB (pg_search + pgvector), waits for health
 make ingest-scifact             # BEIR SciFact, ~5k abstracts
-make eval-retrieval             # the first table above. no API key, no cost
+make eval-retrieval             # the table above. no API key, no cost
+make report                     # regenerate the table from stored runs
 ```
+
+`make db` shells out to `docker-compose`, not `docker compose`: Homebrew's
+compose formula installs the CLI plugin but the docker CLI only finds it if
+`~/.docker/config.json` lists `"cliPluginsExtraDirs": ["/opt/homebrew/lib/docker/cli-plugins"]`.
+Both spellings work once that key is present.
 
 `make eval-retrieval` needs no credentials and costs nothing, which is also why
 CI can run it on every push.
