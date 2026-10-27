@@ -19,6 +19,7 @@ rather than left to the caller.
 from __future__ import annotations
 
 import datetime as dt
+import http.client
 import pathlib
 import re
 import ssl
@@ -176,19 +177,39 @@ def _ssl_context() -> ssl.SSLContext:
 
 
 MAX_ATTEMPTS = 3
+_RETRY_BACKOFF_S = 2.0
+
+# Retried: anything transient. ConnectionResetError (errno 54) killed the first
+# 300-paper ingest at paper 111 -- it arrives as a bare OSError, not a URLError,
+# so the original narrow catch missed it. URLError and TimeoutError are
+# themselves OSError subclasses, so one clause covers all three.
+_TRANSIENT = (OSError, http.client.HTTPException)
+
+# Not retried: an HTTP status that is an ANSWER rather than a failure. Retrying
+# a 404 just burns three rate-limited slots to learn the same thing.
+_RETRYABLE_STATUS = frozenset({408, 429, 500, 502, 503, 504})
 
 
-def _throttled_get(url: str, timeout: float = 60.0) -> bytes:
+def _throttled_get(url: str, timeout: float = 60.0, opener=None) -> bytes:
     """Rate-limited GET with bounded retries on transient network failures.
 
     Retrying is resilience, not a fallback: there is no degraded path, and after
     the final attempt this raises with the underlying cause attached. The
-    retries exist because a 300-paper ingest over a flaky DNS resolver would
-    otherwise abort most of the way through, and the no-partial-ingest rule
-    means an abort costs the whole run.
+    retries exist because a 300-paper ingest over a flaky network would
+    otherwise abort most of the way through -- which it did, at paper 111 -- and
+    the no-partial-ingest rule means an abort costs the whole run.
+
+    `opener` is injectable so retry classification can be tested without a
+    network: the distinction between "retry this" and "this is an answer"
+    is logic, and logic deserves tests.
     """
     global _last_request_at
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    fetch = opener or (
+        lambda req, timeout, context: urllib.request.urlopen(
+            req, timeout=timeout, context=context
+        )
+    )
     last: Exception | None = None
 
     for attempt in range(1, MAX_ATTEMPTS + 1):
@@ -196,13 +217,18 @@ def _throttled_get(url: str, timeout: float = 60.0) -> bytes:
         if wait > 0:
             time.sleep(wait)
         try:
-            with urllib.request.urlopen(
-                request, timeout=timeout, context=_ssl_context()
-            ) as response:
+            with fetch(request, timeout=timeout, context=_ssl_context()) as response:
                 return response.read()
-        except (urllib.error.URLError, TimeoutError) as exc:
+        except urllib.error.HTTPError as exc:
+            if exc.code not in _RETRYABLE_STATUS:
+                raise IngestError(
+                    f"arXiv request for {url} returned HTTP {exc.code}: {exc.reason}"
+                ) from exc
             last = exc
-            time.sleep(2.0 * attempt)  # linear backoff on top of the rate limit
+            time.sleep(_RETRY_BACKOFF_S * attempt)
+        except _TRANSIENT as exc:
+            last = exc
+            time.sleep(_RETRY_BACKOFF_S * attempt)
         finally:
             _last_request_at = time.monotonic()
 

@@ -128,3 +128,106 @@ def test_tls_verification_is_enabled_against_a_real_ca_bundle():
     assert context.verify_mode == ssl.CERT_REQUIRED
     assert context.check_hostname is True
     assert context.cert_store_stats()["x509_ca"] > 0
+
+
+# --------------------------------------------------------------------------
+# Retry classification.
+#
+# The 300-paper ingest died at paper 111 on ConnectionResetError (errno 54),
+# which the retry did not catch: it handled urllib.error.URLError and
+# TimeoutError, but a reset-by-peer arrives as a bare OSError. A 404, by
+# contrast, must NOT be retried -- it is an answer, not a failure.
+# --------------------------------------------------------------------------
+
+
+class _Opener:
+    """A stand-in for urlopen that replays a scripted sequence of outcomes."""
+
+    def __init__(self, outcomes):
+        self.outcomes = list(outcomes)
+        self.calls = 0
+
+    def __call__(self, request, timeout=None, context=None):
+        self.calls += 1
+        outcome = self.outcomes.pop(0)
+        if isinstance(outcome, Exception):
+            raise outcome
+        return _Response(outcome)
+
+
+class _Response:
+    def __init__(self, payload: bytes):
+        self._payload = payload
+
+    def read(self) -> bytes:
+        return self._payload
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+def test_connection_reset_is_retried_and_then_succeeds(monkeypatch):
+    from agentforge.ingest import arxiv as mod
+
+    monkeypatch.setattr(mod, "MIN_REQUEST_INTERVAL_S", 0.0)
+    monkeypatch.setattr(mod, "_RETRY_BACKOFF_S", 0.0)
+    opener = _Opener([ConnectionResetError(54, "Connection reset by peer"), b"ok"])
+    assert mod._throttled_get("http://example.test/x", opener=opener) == b"ok"
+    assert opener.calls == 2
+
+
+def test_exhausted_retries_raise_with_the_cause(monkeypatch):
+    from agentforge.ingest import arxiv as mod
+
+    monkeypatch.setattr(mod, "MIN_REQUEST_INTERVAL_S", 0.0)
+    monkeypatch.setattr(mod, "_RETRY_BACKOFF_S", 0.0)
+    opener = _Opener([ConnectionResetError(54, "reset")] * mod.MAX_ATTEMPTS)
+    with pytest.raises(IngestError, match="after 3 attempts"):
+        mod._throttled_get("http://example.test/x", opener=opener)
+    assert opener.calls == mod.MAX_ATTEMPTS
+
+
+def test_a_404_is_not_retried(monkeypatch):
+    """A 404 is an answer. Retrying it wastes three rate-limited slots."""
+    import urllib.error
+
+    from agentforge.ingest import arxiv as mod
+
+    monkeypatch.setattr(mod, "MIN_REQUEST_INTERVAL_S", 0.0)
+    monkeypatch.setattr(mod, "_RETRY_BACKOFF_S", 0.0)
+    error = urllib.error.HTTPError("http://example.test/x", 404, "Not Found", {}, None)
+    opener = _Opener([error])
+    with pytest.raises(IngestError, match="404"):
+        mod._throttled_get("http://example.test/x", opener=opener)
+    assert opener.calls == 1
+
+
+def test_a_429_is_retried(monkeypatch):
+    """Rate limiting is transient by definition."""
+    import urllib.error
+
+    from agentforge.ingest import arxiv as mod
+
+    monkeypatch.setattr(mod, "MIN_REQUEST_INTERVAL_S", 0.0)
+    monkeypatch.setattr(mod, "_RETRY_BACKOFF_S", 0.0)
+    opener = _Opener(
+        [urllib.error.HTTPError("http://e.test/x", 429, "Too Many", {}, None), b"ok"]
+    )
+    assert mod._throttled_get("http://e.test/x", opener=opener) == b"ok"
+    assert opener.calls == 2
+
+
+def test_a_500_is_retried(monkeypatch):
+    import urllib.error
+
+    from agentforge.ingest import arxiv as mod
+
+    monkeypatch.setattr(mod, "MIN_REQUEST_INTERVAL_S", 0.0)
+    monkeypatch.setattr(mod, "_RETRY_BACKOFF_S", 0.0)
+    opener = _Opener(
+        [urllib.error.HTTPError("http://e.test/x", 503, "Unavailable", {}, None), b"ok"]
+    )
+    assert mod._throttled_get("http://e.test/x", opener=opener) == b"ok"

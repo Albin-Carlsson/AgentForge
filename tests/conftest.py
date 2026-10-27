@@ -36,6 +36,14 @@ def database() -> dict[str, str]:
 
 
 @pytest.fixture
+def db(database) -> None:
+    """Clears the LLM cache so cache-behaviour tests start from a known state."""
+    with pool().connection() as conn:
+        conn.execute("DELETE FROM llm_cache")
+    return None
+
+
+@pytest.fixture
 def probe_corpus() -> str:
     """A tiny corpus with known contents, torn down after each test."""
     import json
