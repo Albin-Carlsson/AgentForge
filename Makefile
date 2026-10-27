@@ -7,7 +7,7 @@ PY := .venv/bin/python
 COMPOSE := docker-compose
 
 .PHONY: help install db db-down test lint init \
-        ingest-scifact ingest-arxiv index eval-retrieval report \
+        ingest-scifact ingest-arxiv load-questions index eval-retrieval report \
         measure-parser validate-judge review-labels eval-fast serve
 
 help:
@@ -39,6 +39,9 @@ ingest-scifact: ## load the BEIR SciFact tier (~5k abstracts)
 
 ingest-arxiv: ## fetch, parse and chunk 300 arXiv papers
 	$(PY) -m agentforge.cli ingest-arxiv -n 300
+
+load-questions: ## load the frozen 40-question arXiv set (data/arxiv40.jsonl)
+	$(PY) -m agentforge.cli load-questions
 
 index: ## build BM25 and dense indexes (CORPUS=scifact|arxiv-rag)
 	$(PY) -m agentforge.cli index --corpus $(or $(CORPUS),scifact)

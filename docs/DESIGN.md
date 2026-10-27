@@ -70,7 +70,7 @@ under one follow-up question is worth less than two that do not.
 | Tier | Source | N | Labels | Cost | Job |
 |---|---|---|---|---|---|
 | Retrieval | BEIR SciFact | ~300 queries | gold qrels, free | **$0** | every retrieval ablation; statistical power |
-| Product | hand-written arXiv | 40 | gold spans, by hand | ~$6/arm | the numbers that get quoted |
+| Product | arXiv, model-drafted + human-reviewed | 40 | gold spans, whole-paper audit | ~$6/arm | the numbers that get quoted |
 | Judge validation | hand-labelled pairs | 100 | by hand | ~$1 | κ; licenses the instrument |
 
 Public benchmarks and self-curated sets fail in opposite directions, which is
@@ -78,7 +78,7 @@ why both are here. A benchmark gives statistical power (a 2-point delta is real
 at N=300; at N=40 the CI is ±7 and reranking's effect is undetectable), free
 labels, and external calibration — but it is contaminated by pretraining, ships
 as clean pre-chunked text that bypasses the entire ingestion path, and asks for
-short factoid answers rather than cited reports. The hand-written set exercises
+short factoid answers rather than cited reports. The curated set exercises
 the real pipeline end to end, is contamination-free by construction (post-cutoff
 papers), and is the only tier that can measure citation precision.
 

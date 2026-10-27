@@ -87,6 +87,14 @@ def cmd_ingest_arxiv(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_load_questions(args: argparse.Namespace) -> int:
+    from agentforge.ingest import papers, questions
+
+    stats = questions.load(papers.CORPUS_ID, papers.TIER, pathlib.Path(args.path))
+    print(json.dumps(stats, indent=2))
+    return 0
+
+
 def cmd_index(args: argparse.Namespace) -> int:
     config = _config(args.corpus, embed_model=args.embed_model)
     state = lexical.build_index(config.retrieval)
@@ -400,6 +408,10 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("-n", type=int, default=300, help="number of papers")
     p.add_argument("--embed-model", dest="embed_model", default="BAAI/bge-base-en-v1.5")
     p.set_defaults(func=cmd_ingest_arxiv)
+
+    p = sub.add_parser("load-questions", help="load the frozen arXiv question set")
+    p.add_argument("--path", default="data/arxiv40.jsonl")
+    p.set_defaults(func=cmd_load_questions)
 
     p = sub.add_parser("index", help="build the BM25 and dense indexes")
     p.add_argument("--corpus", default="scifact")

@@ -68,7 +68,7 @@ CREATE INDEX IF NOT EXISTS chunks_doc_idx    ON chunks (doc_id, ordinal);
 -- ------------------------------------------------------------ evaluation side
 
 -- Tiers: 'scifact'  = free retrieval tier, gold qrels, no LLM, large N.
---        'arxiv40'  = hand-written, frozen, gold spans, contamination-free.
+--        'arxiv40'  = curated (data/arxiv40.jsonl), frozen, gold spans, contamination-free.
 CREATE TABLE IF NOT EXISTS queries (
     query_id    text PRIMARY KEY,
     tier        text NOT NULL,
@@ -82,7 +82,7 @@ CREATE TABLE IF NOT EXISTS queries (
 CREATE INDEX IF NOT EXISTS queries_tier_idx ON queries (tier);
 
 -- Relevance judgements. doc_id for BEIR (document-level qrels), chunk_id for the
--- hand-labelled arxiv tier (span-level gold).
+-- curated arxiv tier (span-level gold).
 CREATE TABLE IF NOT EXISTS qrels (
     query_id  text NOT NULL REFERENCES queries(query_id) ON DELETE CASCADE,
     doc_id    text,

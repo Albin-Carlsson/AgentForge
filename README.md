@@ -90,7 +90,15 @@ a line-based parser cannot see them, and on one paper they are 25 of 38 LaTeXML
 headings. Scoring against them reported 0.158 for that paper, which described
 the metric's definition rather than the parser's quality.
 
-### End-to-end — 40 hand-written arXiv questions, frozen before building
+### End-to-end — 40 arXiv questions, frozen before building
+
+The set is [`data/arxiv40.jsonl`](data/arxiv40.jsonl): 32 single-paper and 8
+two-paper questions over a seeded random sample of 40 papers. They were drafted
+by Claude from the chunks themselves, never from retrieval output, so gold is
+not biased toward any arm. Gold is every chunk in the paper that states the
+answer, found by a whole-paper search. Each question is then reviewed and edited
+by hand. `make load-questions` refuses to change a question once any run exists
+on the tier.
 
 `[M4]` · requires an API key. Arms: no-retrieval control, single agent, four-role
 graph. The control is not filler — it quantifies how much the model already
@@ -249,9 +257,11 @@ The rule needs one sharp edge to be workable, and it is in
   The corrected numbers still show reranking losing, by slightly less.
 - **The fidelity scorer was wrong three times before the parser was** — see the
   postscript in [docs/DESIGN.md](docs/DESIGN.md).
-- The 40-question set is written by one person and frozen before building. That
-  removes tuning-to-the-test but not bias in which questions got asked; the
-  SciFact tier exists partly as an independent check.
+- **The 40-question set is model-drafted, then human-reviewed**, and frozen
+  before any arm ran. Freezing removes tuning-to-the-test but not bias in which
+  questions got asked. Drafting from the gold chunk also tends to share its
+  vocabulary, which favours BM25. Questions were paraphrased against that, but
+  not measured. The SciFact tier exists partly as an independent check.
 - p95 latency is sequential single-request on an M3 MacBook Air, warm index,
   excluding ingestion. No concurrency testing — that is a different project.
 - **Judge reference labels are `[M4]` model-generated and pending human review.**
