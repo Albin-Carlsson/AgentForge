@@ -69,22 +69,24 @@ Reranking is re-measured here because the domain differs from SciFact.
 Heading detection is a font-geometry heuristic, so the only honest answer to
 "how often is it wrong?" is a number. Ground truth is `arxiv.org/html/<id>`,
 rendered from the authors' LaTeX — no labelling, no cost. `make measure-parser`.
+All 300 papers, 287 of which have a LaTeXML rendering to score against.
 
-| Metric | Value | What it bounds |
+| Metric | Mean | What it bounds |
 |---|---|---|
-| **Text coverage** | **0.978** | The one that matters: 97.8% of extracted characters land inside a section, so almost nothing is unchunked and unretrievable. |
-| Section recall | 0.497 | Half the authors' block-level headings are detected. |
-| Section precision | 0.822 | 82% of detected headings are real. |
+| **Text coverage** | **0.981** | The one that matters: 98.1% of extracted characters land inside a section, so almost nothing is unchunked and unretrievable. 11% of papers fall below 0.95; the worst is 0.859. |
+| Section recall | 0.328 | A third of the authors' block-level headings are detected (median 0.273; 73 papers below 0.2, 20 at 0.75 or above). |
+| Section precision | 0.814 | 81% of detected headings are real (median 0.857). |
 
 **These fail differently and must not be conflated.** A missed heading does not
 lose text — the body merges into the preceding section, so every character is
 still chunked, embedded and citable; what degrades is how precisely a citation
 can name *which* section it came from. Uncovered text is the failure that would
-actually invalidate a retrieval number, and it sits at 2.2% (title, authors and
-affiliations, which precede the first heading by design).
+actually invalidate a retrieval number, and it sits at 1.9% (mostly title,
+authors and affiliations, which precede the first heading by design).
 
-Recall splits by paper style: numbered-heading papers score 0.79 and 0.95, while
-papers with deep appendix subsectioning score 0.18–0.32. Run-in `\paragraph{}`
+Recall varies widely by paper (interquartile range 0.19–0.40). The per-paper
+rows are in [`results/parser-fidelity.md`](results/parser-fidelity.md).
+Run-in `\paragraph{}`
 labels are counted but **not scored** — they render inline with their prose, so
 a line-based parser cannot see them, and on one paper they are 25 of 38 LaTeXML
 headings. Scoring against them reported 0.158 for that paper, which described
@@ -248,9 +250,12 @@ The rule needs one sharp edge to be workable, and it is in
 
 - **Cross-encoder reranking lost to not reranking** on SciFact, with both models
   tried. It ships disabled, pending re-measurement on the arXiv tier.
-- **The parser detects about half the authors' section headings** (recall 0.497),
-  and fewer on papers with deep appendix subsectioning. Text coverage stays at
-  0.978, so this costs citation granularity rather than retrievability.
+- **The parser detects about a third of the authors' section headings** (recall
+  0.328 over 287 papers). Text coverage stays at 0.981, so this costs citation granularity rather than
+  retrievability.
+- **An earlier version of the parser figure was a 6-paper sample.** It reported
+  recall 0.497, and the full corpus says 0.328. Six papers was too few to quote
+  as a property of the parser.
 - **An earlier version of the retrieval table was wrong.** The first run scored
   `recall@10` on arms configured with `final_k=8`, structurally capping every arm
   at `recall@8`. The harness now refuses to score deeper than a run's `final_k`.
