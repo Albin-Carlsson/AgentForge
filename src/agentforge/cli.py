@@ -125,6 +125,109 @@ def _write_ladder(tier: str, runs: list[tuple[str, str]], k: int, metric: str) -
     return out
 
 
+def cmd_validate_judge(args: argparse.Namespace) -> int:
+    """Score candidate judges against the reference labels and pick one.
+
+    The judge is chosen by measurement rather than by price: running three
+    models over ~100 pairs costs about a dollar, and kappa says which of them
+    is actually an instrument.
+    """
+    from agentforge.eval.judge import EntailmentJudge, validate_judge
+    from agentforge.llm import LLMClient
+
+    results = []
+    for model in args.models:
+        judge = EntailmentJudge(LLMClient(model=model, max_tokens=256))
+        result = validate_judge(judge, min_kappa=args.min_kappa)
+        results.append(result)
+        print(result.describe())
+        if result.note:
+            print(f"    {result.note}")
+
+    usable = [r for r in results if r.usable]
+    body = [
+        "# Judge validation",
+        "",
+        "An unvalidated LLM judge makes every groundedness number above it decorative.",
+        "Kappa rather than raw agreement, because the label distribution is skewed: a",
+        "judge answering \"entailed\" every time posts ~90% agreement with no skill.",
+        "",
+        "| Judge | prompt | kappa | agreement | n | labels | usable |",
+        "|---|---|---|---|---|---|---|",
+    ]
+    for r in results:
+        body.append(
+            f"| `{r.judge_model}` | {r.prompt_version} | **{r.kappa:.3f}** | "
+            f"{r.agreement:.3f} | {r.n_pairs} | {r.label_source} | "
+            f"{'yes' if r.usable else 'NO'} |"
+        )
+    body += ["", f"- Floor: kappa >= {args.min_kappa:.2f}"]
+    if usable:
+        cheapest = min(usable, key=lambda r: _model_cost_rank(r.judge_model))
+        body.append(
+            f"- Shipped judge: **{cheapest.judge_model}** -- the cheapest model clearing "
+            "the floor, chosen by measurement rather than by price."
+        )
+    else:
+        body.append(
+            "- **No judge cleared the floor.** The prompt needs fixing and re-measuring; "
+            "numbers computed with a sub-floor judge are not reportable."
+        )
+    if any(not r.human_validated for r in results):
+        body.append(
+            "- Reference labels are model-generated and PENDING HUMAN REVIEW, so these "
+            "figures measure model self-consistency, not human agreement."
+        )
+
+    RESULTS.mkdir(exist_ok=True)
+    out = RESULTS / "judge-validation.md"
+    out.write_text("\n".join(body) + "\n")
+    print(f"\nwritten to {out}")
+    return 0
+
+
+def _model_cost_rank(model: str) -> float:
+    from agentforge.config import MODEL_PRICES
+
+    per_in, per_out = MODEL_PRICES[model]
+    return per_in + per_out
+
+
+def cmd_review_labels(args: argparse.Namespace) -> int:
+    """Interactive review of the reference labels.
+
+    This is the one task in the project that cannot be automated away: if the
+    same model both writes the labels and answers as the judge, kappa measures
+    self-consistency and calling it human agreement would be a lie.
+    """
+    from agentforge.eval.judge import HUMAN_REVIEWED, mark_reviewed, reference_pairs
+
+    pending = [p for p in reference_pairs() if p["label_source"] != HUMAN_REVIEWED]
+    if not pending:
+        print("all reference pairs are human-reviewed.")
+        return 0
+
+    print(f"{len(pending)} pair(s) pending review.")
+    print("For each: [e]ntailed  [c]ontradicted  [u]nsupported  [k]eep as-is  [q]uit\n")
+    choices = {"e": "entailed", "c": "contradicted", "u": "unsupported"}
+    for index, pair in enumerate(pending, start=1):
+        print(f"--- {index}/{len(pending)}  ({pair['pair_id']})")
+        print(f"CLAIM: {pair['claim_text']}")
+        print(f"QUOTE: {pair['quote']}")
+        print(f"model label: {pair['label']}")
+        answer = input("your verdict> ").strip().lower()
+        if answer == "q":
+            break
+        if answer == "k":
+            mark_reviewed(pair["pair_id"], pair["label"])
+        elif answer in choices:
+            mark_reviewed(pair["pair_id"], choices[answer])
+        else:
+            print("  unrecognised; left pending")
+        print()
+    return 0
+
+
 def cmd_measure_parser(args: argparse.Namespace) -> int:
     """Score the PDF parser against arXiv's own LaTeXML rendering.
 
@@ -310,6 +413,17 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("-k", type=int, default=10)
     p.add_argument("--metric", default="ndcg", choices=("recall", "ndcg", "mrr"))
     p.set_defaults(func=cmd_eval_retrieval)
+
+    p = sub.add_parser("validate-judge", help="score candidate judges, report kappa")
+    p.add_argument(
+        "--models", nargs="+",
+        default=["claude-haiku-4-5", "claude-sonnet-5", "claude-opus-5"],
+    )
+    p.add_argument("--min-kappa", dest="min_kappa", type=float, default=0.70)
+    p.set_defaults(func=cmd_validate_judge)
+
+    p = sub.add_parser("review-labels", help="review reference labels by hand")
+    p.set_defaults(func=cmd_review_labels)
 
     p = sub.add_parser("measure-parser", help="score the PDF parser against arXiv HTML")
     p.add_argument("--pdf-dir", dest="pdf_dir", default="data/pdfs")

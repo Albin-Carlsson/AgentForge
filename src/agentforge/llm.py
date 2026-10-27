@@ -249,6 +249,10 @@ class LLMClient:
     max_tokens: int = 8192
     thinking: dict[str, Any] | None = None
     usage: Usage = field(default_factory=Usage)
+    # Every call is reported, cache hits included and marked as such, so a trace
+    # can never be mistaken for a record of model time.
+    observer: Any = None
+    stage: str = "llm"
 
     def __post_init__(self) -> None:
         if self.model not in MODEL_PRICES:
@@ -343,7 +347,7 @@ class LLMClient:
             self.usage.output_tokens += result["output_tokens"]
             self.usage.cost_usd += cost
 
-        return LLMResponse(
+        response = LLMResponse(
             parsed=result["parsed"],
             model=self.model,
             input_tokens=result["input_tokens"],
@@ -353,3 +357,14 @@ class LLMClient:
             cached=cached,
             latency_ms=elapsed_ms,
         )
+        if self.observer is not None:
+            self.observer.record_generation(
+                model=self.model,
+                input_tokens=response.input_tokens,
+                output_tokens=response.output_tokens,
+                cost_usd=response.cost_usd,
+                cached=response.cached,
+                latency_ms=response.latency_ms,
+                stage=self.stage,
+            )
+        return response

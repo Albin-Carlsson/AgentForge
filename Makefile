@@ -6,7 +6,9 @@
 PY := .venv/bin/python
 COMPOSE := docker-compose
 
-.PHONY: help install db db-down test lint init ingest-scifact index eval-retrieval eval-fast
+.PHONY: help install db db-down test lint init \
+        ingest-scifact ingest-arxiv index eval-retrieval report \
+        measure-parser validate-judge review-labels eval-fast serve
 
 help:
 	@grep -E '^[a-z-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
@@ -31,16 +33,36 @@ lint:
 init: ## apply schema, print engine versions
 	$(PY) -m agentforge.cli init
 
-ingest-scifact: ## load the BEIR SciFact tier (~5k abstracts, no API key)
+# ---------------------------------------------------------------- no API key
+ingest-scifact: ## load the BEIR SciFact tier (~5k abstracts)
 	$(PY) -m agentforge.cli ingest-scifact
 
-index: ## build BM25 and dense indexes over the scifact corpus
-	$(PY) -m agentforge.cli index
+ingest-arxiv: ## fetch, parse and chunk 300 arXiv papers
+	$(PY) -m agentforge.cli ingest-arxiv -n 300
 
-eval-retrieval: ## run the 4-arm ladder, write results/retrieval-scifact.md
-	$(PY) -m agentforge.cli eval-retrieval
+index: ## build BM25 and dense indexes (CORPUS=scifact|arxiv-rag)
+	$(PY) -m agentforge.cli index --corpus $(or $(CORPUS),scifact)
+
+eval-retrieval: ## run the retrieval ladder (TIER=scifact|arxiv40)
+	$(PY) -m agentforge.cli eval-retrieval --corpus $(or $(CORPUS),scifact) --tier $(or $(TIER),scifact)
+
+report: ## regenerate the ablation table from stored runs
+	$(PY) -m agentforge.cli report --tier $(or $(TIER),scifact)
+
+measure-parser: ## score the PDF parser against arXiv's LaTeXML rendering
+	$(PY) -m agentforge.cli measure-parser
 
 eval-fast: ## CI gate: the ladder on a 300-doc slice, no API key, no cost
 	$(PY) -m agentforge.cli ingest-scifact --limit 300
 	$(PY) -m agentforge.cli index
 	$(PY) -m agentforge.cli eval-retrieval
+
+# ------------------------------------------------------- requires an API key
+validate-judge: ## score candidate judges against the reference labels
+	$(PY) -m agentforge.cli validate-judge
+
+review-labels: ## review reference labels by hand (the part that cannot be automated)
+	$(PY) -m agentforge.cli review-labels
+
+serve: ## run the API locally
+	$(PY) -m uvicorn agentforge.api.main:app --reload --port 8000

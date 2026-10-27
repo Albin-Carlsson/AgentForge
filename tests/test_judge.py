@@ -114,7 +114,7 @@ def test_a_judge_that_disagrees_is_refused(db):
 def test_a_constant_judge_is_caught_despite_high_agreement(db):
     """A judge answering 'entailed' always scores well on raw agreement in a
     skewed set. Kappa is the number that catches it."""
-    skewed = [("c%d" % i, "q%d" % i, "entailed") for i in range(9)]
+    skewed = [(f"c{i}", f"q{i}", "entailed") for i in range(9)]
     skewed.append(("c9", "q9", "unsupported"))
     store_reference_pairs(skewed, label_source="human-reviewed")
     result = validate_judge(judge("entailed"), min_kappa=0.7)
