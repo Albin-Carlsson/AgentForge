@@ -71,10 +71,14 @@ def test_an_unpriced_model_raises_rather_than_reporting_zero_cost():
 
 
 def test_cache_key_depends_on_every_input_that_changes_the_output():
-    base = dict(
-        model="claude-haiku-4-5", system="s", messages=[{"role": "user", "content": "q"}],
-        max_tokens=100, schema=SCHEMA, thinking=None,
-    )
+    base = {
+        "model": "claude-haiku-4-5",
+        "system": "s",
+        "messages": [{"role": "user", "content": "q"}],
+        "max_tokens": 100,
+        "schema": SCHEMA,
+        "thinking": None,
+    }
     key = cache_key(**base)
     assert cache_key(**base) == key, "the key must be stable"
     assert cache_key(**{**base, "model": "claude-sonnet-5"}) != key

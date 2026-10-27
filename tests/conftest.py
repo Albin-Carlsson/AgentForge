@@ -35,12 +35,17 @@ def database() -> dict[str, str]:
     return info
 
 
+# Tables holding per-test state. Reference pairs in particular leak loudly:
+# a leftover pair makes a scripted judge run out of verdicts.
+_EPHEMERAL_TABLES = ("llm_cache", "judge_reference", "judge_validation", "research_jobs")
+
+
 @pytest.fixture
 def db(database) -> None:
-    """Clears the LLM cache so cache-behaviour tests start from a known state."""
+    """Truncates per-test state so each test starts from a known database."""
     with pool().connection() as conn:
-        conn.execute("DELETE FROM llm_cache")
-    return None
+        for table in _EPHEMERAL_TABLES:
+            conn.execute(f"DELETE FROM {table}")
 
 
 @pytest.fixture

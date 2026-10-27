@@ -190,3 +190,24 @@ CREATE TABLE IF NOT EXISTS llm_cache (
     output_tokens integer NOT NULL,
     created_at    timestamptz NOT NULL DEFAULT now()
 );
+
+-- Research requests. A run takes tens of seconds, so the API hands back a job
+-- id immediately and an in-process asyncio task writes progress here. No
+-- Celery, no Redis: one table and one task is the whole queue, which is the
+-- right size for this system.
+CREATE TABLE IF NOT EXISTS research_jobs (
+    job_id       text PRIMARY KEY,
+    question     text NOT NULL,
+    arm          text NOT NULL,              -- 'single_agent' | 'four_role'
+    status       text NOT NULL,              -- 'queued'|'running'|'done'|'failed'
+    report_md    text,
+    claims_json  jsonb,
+    counts_json  jsonb,
+    stage_latency_ms jsonb,
+    usage_json   jsonb,
+    error        text,                       -- failures are recorded, not swallowed
+    created_at   timestamptz NOT NULL DEFAULT now(),
+    finished_at  timestamptz
+);
+
+CREATE INDEX IF NOT EXISTS research_jobs_status_idx ON research_jobs (status, created_at);
