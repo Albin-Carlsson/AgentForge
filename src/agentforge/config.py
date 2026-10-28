@@ -44,6 +44,8 @@ MODEL_PRICES: dict[str, tuple[float, float]] = {
     "claude-haiku-4-5": (1.00, 5.00),
     "claude-sonnet-5": (2.00, 10.00),
     "claude-opus-5": (5.00, 25.00),
+    # Prompts up to 100K tokens; this project's never exceed ~4K.
+    "claude-haiku-5-5": (0.10, 0.50),
     "openai/gpt-oss-20b": (0.075, 0.30),
     "openai/gpt-oss-120b": (0.15, 0.60),
     "qwen/qwen3.8-27b": (0.80, 4.00),
@@ -55,6 +57,7 @@ MODEL_PROVIDERS: dict[str, str] = {
     "claude-haiku-4-5": "anthropic",
     "claude-sonnet-5": "anthropic",
     "claude-opus-5": "anthropic",
+    "claude-haiku-5-5": "anthropic",
     "openai/gpt-oss-20b": "groq",
     "openai/gpt-oss-120b": "groq",
     "qwen/qwen3.8-27b": "groq",

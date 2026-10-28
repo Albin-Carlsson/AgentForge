@@ -199,11 +199,42 @@ def test_an_absent_api_key_raises_only_when_a_real_call_is_needed():
     """M1 and M2 run without a key; the error must name that boundary."""
     from agentforge.llm import default_transport
 
+    # An empty key, not None: None reads .env, which may hold a real key.
     with pytest.raises(ConfigError, match="ANTHROPIC_API_KEY"):
-        default_transport(api_key=None)
+        default_transport(api_key="")
 
 
 def test_response_reports_which_model_answered(db):
     response = client(FakeTransport()).complete("s", "q", SCHEMA)
     assert isinstance(response, LLMResponse)
     assert response.model == "claude-haiku-4-5"
+
+
+def test_anthropic_effort_goes_in_output_config_not_thinking(monkeypatch):
+    import types
+
+    import anthropic
+
+    from agentforge.llm import _thinking_for, default_transport
+
+    sent: dict = {}
+
+    class Messages:
+        def create(self, **kwargs):
+            sent.update(kwargs)
+            return types.SimpleNamespace(
+                stop_reason="end_turn",
+                content=[types.SimpleNamespace(type="text", text='{"ok": true}')],
+                usage=types.SimpleNamespace(input_tokens=5, output_tokens=2),
+            )
+
+    monkeypatch.setattr(anthropic, "Anthropic", lambda api_key: types.SimpleNamespace(messages=Messages()))
+    thinking = _thinking_for("claude-haiku-5-5", "low")
+    result = default_transport("k")(
+        model="claude-haiku-5-5", system="s", messages=[{"role": "user", "content": "q"}],
+        max_tokens=64, schema=SCHEMA, thinking=thinking,
+    )
+    assert sent["output_config"] == {"format": {"type": "json_schema", "schema": SCHEMA}, "effort": "low"}
+    assert "thinking" not in sent
+    assert result["parsed"] == {"ok": True}
+    assert _thinking_for("openai/gpt-oss-20b", "low") == {"reasoning_effort": "low"}

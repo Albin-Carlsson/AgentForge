@@ -110,25 +110,35 @@ E2E_ARMS = {
 }
 
 
-def _e2e_config(arm: str) -> RunConfig:
+def _e2e_config(arm: str, generator: str | None = None) -> RunConfig:
     from agentforge.config import GenerationConfig
     from agentforge.ingest import papers
 
+    generation = {"graph": E2E_ARMS[arm]}
+    if generator is not None:
+        generation["model"] = generator
     return RunConfig(
         ingest=IngestConfig(corpus_id=papers.CORPUS_ID),
         retrieval=RetrievalConfig(),
-        generation=GenerationConfig(graph=E2E_ARMS[arm]),
+        generation=GenerationConfig(**generation),
     )
+
+
+def _e2e_label(arm: str, generator: str | None) -> str:
+    # Runs with a non-default generator are labelled apart, so the report for
+    # one generator can never pick up another generator's run of the same arm.
+    return arm if generator is None else f"{arm}@{generator}"
 
 
 def cmd_eval_e2e(args: argparse.Namespace) -> int:
     from agentforge.eval import e2e
     from agentforge.ingest import papers
 
-    config = _e2e_config(args.arm)
-    print(f"{args.arm}: config {config.config_hash}, generator {config.generation.model}, "
+    config = _e2e_config(args.arm, args.generator)
+    label = _e2e_label(args.arm, args.generator)
+    print(f"{label}: config {config.config_hash}, generator {config.generation.model}, "
           f"judge {config.judge.model}")
-    handle = e2e.execute_e2e_run(config, papers.TIER, args.arm)
+    handle = e2e.execute_e2e_run(config, papers.TIER, label)
     print(json.dumps(e2e.score_e2e_run(handle.run_id).__dict__, indent=2, default=str))
     return 0
 
@@ -137,7 +147,7 @@ def cmd_report_e2e(args: argparse.Namespace) -> int:
     from agentforge.eval import e2e
     from agentforge.ingest import papers
 
-    runs = {arm: _latest_finished(arm, papers.TIER) for arm in E2E_ARMS}
+    runs = {arm: _latest_finished(_e2e_label(arm, args.generator), papers.TIER) for arm in E2E_ARMS}
     missing = [arm for arm, run in runs.items() if run is None]
     if missing:
         raise SystemExit(f"no finished run for arm(s) {missing}; run `make eval-e2e ARM=...`")
@@ -146,7 +156,7 @@ def cmd_report_e2e(args: argparse.Namespace) -> int:
     def pct(x):
         return "—" if x is None else f"{x:.3f}"
 
-    config = _e2e_config("graph")
+    config = _e2e_config("graph", args.generator)
     lines = [
         "# End-to-end — 40 arXiv questions",
         "",
@@ -177,7 +187,8 @@ def cmd_report_e2e(args: argparse.Namespace) -> int:
     lines += ["", "Runs: " + ", ".join(f"`{r}`" for r in runs.values())]
     body = "\n".join(lines) + "\n"
     RESULTS.mkdir(exist_ok=True)
-    out = RESULTS / "e2e-arxiv40.md"
+    slug = "" if args.generator is None else "-" + args.generator.replace("/", "_")
+    out = RESULTS / f"e2e-arxiv40{slug}.md"
     out.write_text(body)
     print(body)
     return 0
@@ -513,9 +524,11 @@ def main(argv: list[str] | None = None) -> int:
 
     p = sub.add_parser("eval-e2e", help="run one end-to-end arm over the arXiv questions")
     p.add_argument("--arm", required=True, choices=sorted(E2E_ARMS))
+    p.add_argument("--generator", default=None, help="override generation.model")
     p.set_defaults(func=cmd_eval_e2e)
 
     p = sub.add_parser("report-e2e", help="write the end-to-end table from stored runs")
+    p.add_argument("--generator", default=None, help="report the runs of this generator")
     p.set_defaults(func=cmd_report_e2e)
 
     p = sub.add_parser("index", help="build the BM25 and dense indexes")

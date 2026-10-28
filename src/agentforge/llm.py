@@ -160,13 +160,18 @@ def default_transport(api_key: str | None = None) -> Transport:
             "messages": messages,
             "max_tokens": max_tokens,
         }
+        output_config: dict[str, Any] = {}
         if schema is not None:
             # Enforced API-side, so a malformed shape is impossible rather than
             # something to defensively repair.
-            kwargs["output_config"] = {
-                "format": {"type": "json_schema", "schema": schema}
-            }
-        if thinking is not None:
+            output_config["format"] = {"type": "json_schema", "schema": schema}
+        thinking = dict(thinking or {})
+        if "effort" in thinking:
+            # Effort lives in output_config on current models, not in `thinking`.
+            output_config["effort"] = thinking.pop("effort")
+        if output_config:
+            kwargs["output_config"] = output_config
+        if thinking:
             kwargs["thinking"] = thinking
 
         message = client.messages.create(**kwargs)
@@ -522,11 +527,15 @@ class LLMClient:
 
 
 def _thinking_for(model: str, reasoning_effort: str | None) -> dict[str, Any] | None:
+    """The effort setting in each provider's own shape. Part of the cache key."""
     if reasoning_effort is None:
         return None
-    if MODEL_PROVIDERS.get(model) != "groq":
-        raise ConfigError(f"reasoning_effort is a Groq parameter; {model!r} is not Groq-served")
-    return {"reasoning_effort": reasoning_effort}
+    provider = MODEL_PROVIDERS.get(model)
+    if provider == "groq":
+        return {"reasoning_effort": reasoning_effort}
+    if provider == "anthropic":
+        return {"effort": reasoning_effort}
+    raise ConfigError(f"no provider recorded for model {model!r}")
 
 
 def generator_client(generation: Any, **kwargs: Any) -> LLMClient:

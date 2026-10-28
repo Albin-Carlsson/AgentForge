@@ -62,10 +62,10 @@ eval-fast: ## CI gate: the ladder on a 300-doc slice, no API key, no cost
 
 # ------------------------------------------------------- requires an API key
 eval-e2e: ## one end-to-end arm over the arXiv questions (ARM=control|single|graph); resumable
-	$(PY) -m agentforge.cli eval-e2e --arm $(ARM)
+	$(PY) -m agentforge.cli eval-e2e --arm $(ARM) $(if $(GENERATOR),--generator $(GENERATOR))
 
 report-e2e: ## the end-to-end table from the latest finished run of each arm
-	$(PY) -m agentforge.cli report-e2e
+	$(PY) -m agentforge.cli report-e2e $(if $(GENERATOR),--generator $(GENERATOR))
 
 load-judge-reference: ## load the 100 reference pairs (data/judge_reference.jsonl), quotes verified
 	$(PY) -m agentforge.cli load-judge-reference
