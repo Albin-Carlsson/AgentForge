@@ -108,3 +108,13 @@ def test_reranker_is_skipped_without_candidates(indexed):
     config = cfg(retriever="bm25")
     trace = Retriever(config, indexed).retrieve("zzzznonexistentterm")
     assert trace.final == []
+
+
+def test_concurrent_retrieval_is_safe(indexed):
+    """The graph's Researchers retrieve in parallel; unserialised MPS inference aborted."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    retriever = Retriever(cfg(retriever="hybrid"), indexed)
+    with ThreadPoolExecutor(4) as pool:
+        traces = list(pool.map(retriever.retrieve, ["retrieval", "reranking", "dense", "BM25"] * 3))
+    assert all(trace.final for trace in traces)

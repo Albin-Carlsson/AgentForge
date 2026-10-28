@@ -1,7 +1,7 @@
 # AgentForge
 
-A multi-agent research assistant that turns PDFs and web sources into
-citation-backed reports — and the evaluation harness it was tuned with.
+A multi-agent research assistant that turns arXiv PDFs into citation-backed
+reports — and the evaluation harness it was tuned with.
 
 Every number below was produced by `make` targets in this repo and is
 regenerated from SQL, not typed by hand. Blanks marked `[Mn]` are filled by that
@@ -131,10 +131,25 @@ generator's training cutoff, so that attribution is clean by construction.
 
 ### The judge, validated
 
-`[M4]` · `make validate-judge` scores `claude-haiku-4-5`, `claude-sonnet-5` and
-`claude-opus-5` over the reference pairs and ships the cheapest clearing
-κ ≥ 0.70 — chosen by measurement, not by price. An unvalidated LLM judge makes
-every groundedness number above it decorative.
+`make validate-judge` scores candidate judges over 100 reference pairs
+([`data/judge_reference.jsonl`](data/judge_reference.jsonl)) and ships the
+cheapest one clearing κ ≥ 0.70. An unvalidated LLM judge makes every
+groundedness number above it decorative.
+
+| Judge | κ | agreement | n | labels |
+|---|---|---|---|---|
+| `openai/gpt-oss-20b` | **0.952** | 0.970 | 100 | Claude-drafted, pending human review |
+
+`gpt-oss-20b` is the cheapest candidate, so no other model was spent on. All
+three disagreements are pairs labelled *unsupported*. Two of them the judge
+called *entailed*: a causal over-reach ("would have prevented") and a
+superlative ("worst of all methods"). That is the direction that inflates
+groundedness, so treat the groundedness column as a mild upper bound.
+
+The labels were drafted by a different model family from the judge, so κ
+measures agreement between models, not one model agreeing with itself. It is
+still not human agreement: every quote is verified verbatim against its chunk,
+but no human has confirmed the labels yet (`make review-labels`).
 
 κ rather than raw agreement, because the label distribution is skewed: in a
 working system most claims are entailed, so a judge answering "entailed" every
@@ -154,11 +169,12 @@ flowchart LR
     R2 --> V
     R3 --> V
     V -->|rejected · 1 bounded retry| R1
-    V --> S[Synthesizer] --> OUT[Cited report]
+    V --> J[Judge · separate model] --> S[Renderer · no model] --> OUT[Cited report]
 
     subgraph Retrieval
       BM[BM25 · pg_search] --> RRF[RRF fusion]
       DV[pgvector · bge-base] --> RRF
+      RRF --> RR[bge-reranker-base]
     end
     R1 -.-> BM
     R1 -.-> DV
@@ -289,15 +305,19 @@ The rule needs one sharp edge to be workable, and it is in
   The corrected numbers still show reranking losing, by slightly less.
 - **The fidelity scorer was wrong three times before the parser was** — see the
   postscript in [docs/DESIGN.md](docs/DESIGN.md).
-- **The 40-question set is model-drafted, then human-reviewed**, and frozen
-  before any arm ran. Freezing removes tuning-to-the-test but not bias in which
-  questions got asked. Drafting from the gold chunk also tends to share its
+- **The 40-question set is model-drafted and was frozen without human review**,
+  before any arm ran, at the owner's request so measurement could start.
+  Freezing removes tuning-to-the-test but not bias in which questions got
+  asked, and a drafting error now stays in. Drafting from the gold chunk also tends to share its
   vocabulary, which favours BM25. Questions were paraphrased against that, but
   not measured. The SciFact tier exists partly as an independent check.
-- p95 latency is sequential single-request on an M3 MacBook Air, warm index,
-  excluding ingestion. No concurrency testing — that is a different project.
-- **Judge reference labels are `[M4]` model-generated and pending human review.**
-  Until reviewed, κ measures model self-consistency, not human agreement, and is
+- **No end-to-end latency is reported.** The runs used Groq's free tier, whose
+  rate limiting inserts waits into the call path, so wall-clock would measure
+  the quota rather than the system. Measuring it needs a `cache_bypass` run on
+  an unthrottled key. Retrieval-stage timings are unaffected and are in the run
+  rows.
+- **Judge reference labels are model-drafted and pending human review.** Until
+  reviewed, κ measures agreement with another model, not with a human, and is
   reported with that qualifier attached.
 
 ## Design decisions

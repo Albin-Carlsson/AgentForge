@@ -13,6 +13,7 @@ asked for. Querying against a stale or absent index raises.
 
 from __future__ import annotations
 
+import threading
 import time
 from dataclasses import dataclass, field
 
@@ -50,6 +51,14 @@ class RetrievalTrace:
         return sum(self.latency_ms.values())
 
 
+# PyTorch's MPS backend is not thread-safe: the four-role graph's parallel
+# Researchers retrieving concurrently aborted the process (SIGABRT, reproduced
+# with retrieval alone in four threads; one thread is fine). Model inference is
+# therefore serialised process-wide. The Researchers' LLM calls -- the slow
+# part -- still run concurrently.
+_INFERENCE_LOCK = threading.Lock()
+
+
 class Retriever:
     def __init__(self, config: RetrievalConfig, corpus_id: str) -> None:
         self.config = config
@@ -61,6 +70,10 @@ class Retriever:
         )
 
     def retrieve(self, query: str) -> RetrievalTrace:
+        with _INFERENCE_LOCK:
+            return self._retrieve(query)
+
+    def _retrieve(self, query: str) -> RetrievalTrace:
         cfg = self.config
         stages: dict[str, list[Hit]] = {}
         timings: dict[str, float] = {}
