@@ -12,7 +12,43 @@ is a silent pass, and CI is specified to run the retrieval tier.
 
 from __future__ import annotations
 
+import os
+
+import psycopg
 import pytest
+from psycopg.conninfo import conninfo_to_dict, make_conninfo
+
+from agentforge.settings import settings
+
+
+def _use_test_database() -> None:
+    """Point the whole suite at `<db>_test`, never at the real database.
+
+    The fixtures below delete per-test state -- llm_cache among it. Run against
+    the real database, that wiped every cached model call (and the judge's
+    reference pairs) on each `make test`, which silently turns a resumable
+    multi-day run into a re-billed one. Derived, not configured, so there is no
+    way to forget it; and asserted, so a DSN already naming a test database
+    cannot be doubled into `_test_test` or, worse, left pointing at the real one.
+    """
+    real = conninfo_to_dict(settings().pg_dsn)
+    name = real["dbname"]
+    if name.endswith("_test"):
+        raise RuntimeError(f"AF_PG_DSN already names a test database ({name}); set the real one")
+    test_dsn = make_conninfo(**{**real, "dbname": f"{name}_test"})
+    admin = make_conninfo(**{**real, "dbname": "postgres"})
+    with psycopg.connect(admin, autocommit=True) as conn:
+        exists = conn.execute(
+            "SELECT 1 FROM pg_database WHERE datname = %s", (f"{name}_test",)
+        ).fetchone()
+        if not exists:
+            conn.execute(f'CREATE DATABASE "{name}_test"')
+    os.environ["AF_PG_DSN"] = test_dsn
+    settings.cache_clear()
+    assert conninfo_to_dict(settings().pg_dsn)["dbname"] == f"{name}_test"
+
+
+_use_test_database()
 
 from agentforge.db.conn import apply_schema, healthcheck, pool
 from agentforge.errors import AgentForgeError
