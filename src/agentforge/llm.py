@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sys
 import time
 import urllib.error
 import urllib.request
@@ -207,6 +208,12 @@ MAX_RATE_LIMIT_RETRIES = 6
 # A dropped connection or DNS blip is resent unchanged, a bounded number of
 # times. The same request either succeeds or raises; nothing is degraded.
 MAX_NETWORK_RETRIES = 3
+# Groq answers 400 json_validate_failed when a sampled generation did not
+# complete under strict decoding -- observed with an empty failed_generation,
+# i.e. no output at all. The identical request is resent at most this many
+# times, each one logged. A resend cannot select on the verdict: the failed
+# attempt produced none.
+MAX_INVALID_GENERATION_RETRIES = 2
 
 
 def groq_transport(api_key: str | None = None, sleep=time.sleep, post=None) -> Transport:
@@ -275,8 +282,21 @@ def groq_transport(api_key: str | None = None, sleep=time.sleep, post=None) -> T
             "User-Agent": "agentforge/0.1",
         }
 
-        for _ in range(MAX_RATE_LIMIT_RETRIES + 1):
+        invalid_generations = 0
+        for _ in range(MAX_RATE_LIMIT_RETRIES + MAX_INVALID_GENERATION_RETRIES + 1):
             status, response_headers, raw = send(GROQ_URL, headers, body)
+            if (
+                status == 400
+                and b"json_validate_failed" in raw
+                and invalid_generations < MAX_INVALID_GENERATION_RETRIES
+            ):
+                invalid_generations += 1
+                print(
+                    f"warning: {model} returned json_validate_failed; resending "
+                    f"({invalid_generations}/{MAX_INVALID_GENERATION_RETRIES})",
+                    file=sys.stderr, flush=True,
+                )
+                continue
             if status != 429:
                 break
             lowered = {k.lower(): v for k, v in response_headers.items()}

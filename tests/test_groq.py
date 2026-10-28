@@ -114,3 +114,12 @@ def test_a_network_blip_is_resent_then_a_persistent_one_raises():
     assert call(groq_transport("k", sleep=lambda s: None, post=Flaky(2, ok())))["parsed"]
     with pytest.raises(urllib.error.URLError):
         call(groq_transport("k", sleep=lambda s: None, post=Flaky(9, ok())))
+
+
+INVALID = (400, {}, b'{"error":{"code":"json_validate_failed","failed_generation":""}}')
+
+
+def test_an_invalid_generation_is_resent_a_bounded_number_of_times():
+    assert call(groq_transport("k", post=ScriptedPost(INVALID, INVALID, ok())))["parsed"]
+    with pytest.raises(SchemaViolation, match="json_validate_failed"):
+        call(groq_transport("k", post=ScriptedPost(INVALID, INVALID, INVALID)))
