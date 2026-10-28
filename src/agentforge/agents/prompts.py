@@ -65,6 +65,12 @@ and order the rest so they read coherently. You may NOT:
 Every claim you keep must carry its original citation unchanged.\
 """
 
+CONTROL_SYSTEM = """\
+Answer the research question from your own knowledge, in at most five \
+sentences. Be specific: give the numbers, names and comparisons asked for. If \
+you do not know, say so plainly rather than guessing.\
+"""
+
 JUDGE_SYSTEM = """\
 You decide whether a quoted piece of evidence supports a claim.
 

@@ -70,3 +70,12 @@ class MeasurementError(AgentForgeError):
     observations than the configured minimum, or kappa against reference labels
     that are still pending human review.
     """
+
+
+class QuotaExhausted(AgentForgeError):
+    """The provider's rate limit will not reset within a wait worth making.
+
+    Short per-minute limits are waited out. A daily limit is not: the run stops
+    here, and re-running after the reset replays every completed call from the
+    cache for free, so nothing is lost and no question is silently skipped.
+    """

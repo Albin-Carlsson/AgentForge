@@ -27,7 +27,7 @@ def write(tmp_path, rows):
 def row(qid="pq1", question="What fuses BM25 and dense?", chunks=("p1:0",)):
     return {
         "query_id": qid, "question": question, "gold_answer": "Hybrid retrieval.",
-        "kind": "single", "gold_chunks": list(chunks),
+        "kind": "single", "gold_chunks": list(chunks), "answer_keys": ["hybrid"],
     }
 
 

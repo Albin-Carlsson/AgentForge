@@ -72,6 +72,14 @@ SUBQUESTIONS_SCHEMA: dict[str, Any] = {
     "additionalProperties": False,
 }
 
+# The no-retrieval control's output: an answer with nothing to cite.
+ANSWER_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {"answer": {"type": "string"}},
+    "required": ["answer"],
+    "additionalProperties": False,
+}
+
 ENTAILMENT_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {

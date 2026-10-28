@@ -8,7 +8,7 @@ COMPOSE := docker-compose
 
 .PHONY: help install db db-down test lint init \
         ingest-scifact ingest-arxiv load-questions index eval-retrieval report \
-        measure-parser validate-judge review-labels eval-fast serve
+        measure-parser load-judge-reference validate-judge review-labels eval-e2e report-e2e eval-fast serve
 
 help:
 	@grep -E '^[a-z-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
@@ -61,6 +61,15 @@ eval-fast: ## CI gate: the ladder on a 300-doc slice, no API key, no cost
 	$(PY) -m agentforge.cli eval-retrieval
 
 # ------------------------------------------------------- requires an API key
+eval-e2e: ## one end-to-end arm over the arXiv questions (ARM=control|single|graph); resumable
+	$(PY) -m agentforge.cli eval-e2e --arm $(ARM)
+
+report-e2e: ## the end-to-end table from the latest finished run of each arm
+	$(PY) -m agentforge.cli report-e2e
+
+load-judge-reference: ## load the 100 reference pairs (data/judge_reference.jsonl), quotes verified
+	$(PY) -m agentforge.cli load-judge-reference
+
 validate-judge: ## score candidate judges against the reference labels
 	$(PY) -m agentforge.cli validate-judge
 

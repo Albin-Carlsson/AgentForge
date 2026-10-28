@@ -1,4 +1,10 @@
-"""The two research arms: a single-agent baseline and a four-role graph.
+"""The research arms: a no-retrieval control, a single agent, a four-role graph.
+
+The control answers from the model's own weights with no corpus at all. It is
+the only way to attribute an end-to-end gain to retrieval rather than to what
+the model already knew -- and the corpus post-dates the generator's training
+data, so a control that scores well is itself a finding (leakage, or answers
+guessable from the question).
 
 The baseline is not a straw man. It is the measurement that justifies the word
 "multi-agent" existing on a resume at all: without it, "why more than one
@@ -36,6 +42,7 @@ from typing import Any
 
 from agentforge.agents import prompts
 from agentforge.agents.verify import (
+    ANSWER_SCHEMA,
     CLAIMS_SCHEMA,
     ENTAILMENT_SCHEMA,
     SUBQUESTIONS_SCHEMA,
@@ -94,11 +101,49 @@ def format_context(chunk_ids: list[str], lookup: ChunkLookup) -> tuple[str, dict
     return "\n\n".join(blocks), texts
 
 
+class ControlAnswerer:
+    """The no-retrieval control: one call, no sources, no citations.
+
+    Its answer is scored for correctness only. With nothing to cite, it has no
+    groundedness to measure, and reporting one would be meaningless.
+    """
+
+    def __init__(self, llm: LLMClient) -> None:
+        self.llm = llm
+
+    def run(self, question: str) -> ResearchOutcome:
+        started = time.perf_counter()
+        response = self.llm.complete(prompts.CONTROL_SYSTEM, question, ANSWER_SCHEMA)
+        generate_ms = (time.perf_counter() - started) * 1000
+        return ResearchOutcome(
+            question=question,
+            subquestions=[],
+            claims=[],
+            verdicts=[],
+            report=response.parsed["answer"],
+            stage_latency_ms={"synthesize": generate_ms},
+            usage=self.llm.usage,
+            counts=counts([]),
+        )
+
+
 class _Base:
-    def __init__(self, retriever: Any, llm: LLMClient, lookup: ChunkLookup) -> None:
+    def __init__(
+        self,
+        retriever: Any,
+        llm: LLMClient,
+        lookup: ChunkLookup,
+        judge_llm: LLMClient | None = None,
+    ) -> None:
         self.retriever = retriever
         self.llm = llm
         self.lookup = lookup
+        # The judge is its own client and normally its own model: a generator
+        # grading its own claims is the rubber stamp the Verifier exists to avoid.
+        # None means judging happens elsewhere (the eval harness), not that it is
+        # skipped silently -- unjudged verdicts carry entailed=None and are not
+        # counted as verified.
+        self.judge_llm = judge_llm
 
     def _research(self, subquestion: str) -> _ResearchStep:
         """Retrieve for one sub-question and extract claims from only its evidence."""
@@ -131,12 +176,14 @@ class _Base:
         The prompt carries a claim and a quote and nothing else -- the whole
         point of putting this behind its own call.
         """
+        if self.judge_llm is None:
+            raise ConfigError("_judge called on a researcher built without a judge_llm")
         judged: list[ClaimVerdict] = []
         for verdict in verdicts:
             if not verdict.quote_found:
                 judged.append(verdict)
                 continue
-            response = self.llm.complete(
+            response = self.judge_llm.complete(
                 prompts.JUDGE_SYSTEM,
                 f"Claim:\n{verdict.claim_text}\n\nQuote:\n{verdict.quote}",
                 ENTAILMENT_SCHEMA,
@@ -169,6 +216,11 @@ class SingleAgentResearcher(_Base):
         started = time.perf_counter()
         verdicts = verify_claims(step.claims, step.texts)
         verify_ms = (time.perf_counter() - started) * 1000
+        stage_ms = {"retrieve": step.retrieve_ms, "synthesize": step.generate_ms, "verify": verify_ms}
+        if self.judge_llm is not None:
+            started = time.perf_counter()
+            verdicts = self._judge(verdicts)
+            stage_ms["judge"] = (time.perf_counter() - started) * 1000
 
         return ResearchOutcome(
             question=question,
@@ -176,11 +228,7 @@ class SingleAgentResearcher(_Base):
             claims=step.claims,
             verdicts=verdicts,
             report=render_report(step.claims, verdicts, step.texts),
-            stage_latency_ms={
-                "retrieve": step.retrieve_ms,
-                "synthesize": step.generate_ms,
-                "verify": verify_ms,
-            },
+            stage_latency_ms=stage_ms,
             usage=self.llm.usage,
             counts=counts(verdicts),
             retrieved={question: step.chunk_ids},
@@ -195,9 +243,9 @@ class FourRoleResearcher(_Base):
         lookup: ChunkLookup,
         n_subquestions: int = 4,
         max_verify_retries: int = 1,
-        judge_enabled: bool = False,
+        judge_llm: LLMClient | None = None,
     ) -> None:
-        super().__init__(retriever, llm, lookup)
+        super().__init__(retriever, llm, lookup, judge_llm)
         if max_verify_retries > 1:
             raise ConfigError(
                 f"max_verify_retries={max_verify_retries}: unbounded self-correction "
@@ -206,7 +254,6 @@ class FourRoleResearcher(_Base):
             )
         self.n_subquestions = n_subquestions
         self.max_verify_retries = max_verify_retries
-        self.judge_enabled = judge_enabled
 
     def _plan(self, question: str) -> list[str]:
         response = self.llm.complete(
@@ -263,12 +310,10 @@ class FourRoleResearcher(_Base):
         # Bounded retry: one pass, with the rejection fed back to a Researcher.
         if self.max_verify_retries and any(not v.quote_found for v in verdicts):
             started = time.perf_counter()
-            all_claims, verdicts = self._retry_rejected(
-                subquestions, all_claims, verdicts, texts
-            )
+            all_claims, verdicts = self._retry_rejected(question, all_claims, verdicts, texts)
             stage_ms["retry"] = (time.perf_counter() - started) * 1000
 
-        if self.judge_enabled:
+        if self.judge_llm is not None:
             started = time.perf_counter()
             verdicts = self._judge(verdicts)
             stage_ms["judge"] = (time.perf_counter() - started) * 1000
@@ -287,7 +332,7 @@ class FourRoleResearcher(_Base):
 
     def _retry_rejected(
         self,
-        subquestions: list[str],
+        question: str,
         claims: list[dict[str, Any]],
         verdicts: list[ClaimVerdict],
         texts: dict[str, str],
@@ -295,7 +340,8 @@ class FourRoleResearcher(_Base):
         """One re-research pass for the rejected claims.
 
         The rejected claim and the reason go back to a Researcher over the same
-        evidence. A claim still rejected after this ships FLAGGED: dropping it
+        evidence, framed by the original question: the rejected claims can come
+        from any sub-question, so framing them with one of them would mislead. A claim still rejected after this ships FLAGGED: dropping it
         would hide the failure the evaluation exists to count.
         """
         rejected_idx = sorted({v.claim_idx for v in verdicts if not v.quote_found})
@@ -304,7 +350,7 @@ class FourRoleResearcher(_Base):
 
         response = self.llm.complete(
             prompts.RESEARCHER_SYSTEM,
-            f"Sub-question: {subquestions[0]}\n\n"
+            f"Research question: {question}\n\n"
             "The following claims were rejected because their quotes could not be "
             "found verbatim in the cited source. Re-state only the ones the sources "
             "genuinely support, copying each quote exactly. Omit any the sources do "

@@ -95,6 +95,88 @@ def cmd_load_questions(args: argparse.Namespace) -> int:
     return 0
 
 
+# The three end-to-end arms. Each differs from the next in generation.graph
+# alone, so every delta between adjacent arms is attributable.
+E2E_ARMS = {
+    "control": "none",
+    "single": "single_agent",
+    "graph": "four_role",
+}
+
+
+def _e2e_config(arm: str) -> RunConfig:
+    from agentforge.config import GenerationConfig
+    from agentforge.ingest import papers
+
+    return RunConfig(
+        ingest=IngestConfig(corpus_id=papers.CORPUS_ID),
+        retrieval=RetrievalConfig(),
+        generation=GenerationConfig(graph=E2E_ARMS[arm]),
+    )
+
+
+def cmd_eval_e2e(args: argparse.Namespace) -> int:
+    from agentforge.eval import e2e
+    from agentforge.ingest import papers
+
+    config = _e2e_config(args.arm)
+    print(f"{args.arm}: config {config.config_hash}, generator {config.generation.model}, "
+          f"judge {config.judge.model}")
+    handle = e2e.execute_e2e_run(config, papers.TIER, args.arm)
+    print(json.dumps(e2e.score_e2e_run(handle.run_id).__dict__, indent=2, default=str))
+    return 0
+
+
+def cmd_report_e2e(args: argparse.Namespace) -> int:
+    from agentforge.eval import e2e
+    from agentforge.ingest import papers
+
+    runs = {arm: _latest_finished(arm, papers.TIER) for arm in E2E_ARMS}
+    missing = [arm for arm, run in runs.items() if run is None]
+    if missing:
+        raise SystemExit(f"no finished run for arm(s) {missing}; run `make eval-e2e ARM=...`")
+    scores = {arm: e2e.score_e2e_run(run) for arm, run in runs.items()}
+
+    def pct(x):
+        return "—" if x is None else f"{x:.3f}"
+
+    config = _e2e_config("graph")
+    lines = [
+        "# End-to-end — 40 arXiv questions",
+        "",
+        (f"Generator `{config.generation.model}` (reasoning_effort="
+        f"{config.generation.reasoning_effort}), judge `{config.judge.model}`, "
+        f"retrieval: {config.retrieval.retriever}, final_k={config.retrieval.final_k}."),
+        "Correctness is deterministic key-fact recall against each question's",
+        "`answer_keys`; groundedness is verified citations over all citations.",
+        "",
+        ("| Arm | correctness | citations | groundedness | fabricated quotes | "
+        "unsupported (of found) | cited doc in gold | gold chunk cited | "
+        "tokens/question | list cost |"),
+        "|---|---|---|---|---|---|---|---|---|---|",
+    ]
+    labels = {"control": "No-retrieval control", "single": "Single agent",
+              "graph": "Four-role graph"}
+    for arm, sc in scores.items():
+        lines.append(
+            f"| {labels[arm]} | **{sc.correctness:.3f}** | {sc.citations} | {pct(sc.groundedness)} | "
+            f"{pct(sc.fabrication_rate)} | {pct(sc.unsupported_rate)} | "
+            f"{pct(sc.citation_doc_precision)} | {pct(sc.gold_chunk_cited)} | "
+            f"{sc.tokens_per_question:,.0f} | ${sc.list_cost_usd:.4f} |"
+        )
+    lines += ["", "Paired bootstrap on correctness (10,000 resamples, 95% CI):", ""]
+    for base, treat in (("control", "single"), ("single", "graph"), ("control", "graph")):
+        delta = e2e.compare_correctness(runs[base], runs[treat])
+        lines.append(f"- {labels[base]} -> {labels[treat]}: {delta.describe('correctness')}")
+    lines += ["", "Runs: " + ", ".join(f"`{r}`" for r in runs.values())]
+    body = "\n".join(lines) + "\n"
+    RESULTS.mkdir(exist_ok=True)
+    out = RESULTS / "e2e-arxiv40.md"
+    out.write_text(body)
+    print(body)
+    return 0
+
+
 def cmd_index(args: argparse.Namespace) -> int:
     config = _config(args.corpus, embed_model=args.embed_model)
     state = lexical.build_index(config.retrieval)
@@ -140,12 +222,13 @@ def cmd_validate_judge(args: argparse.Namespace) -> int:
     models over ~100 pairs costs about a dollar, and kappa says which of them
     is actually an instrument.
     """
+    from agentforge.config import JudgeConfig
     from agentforge.eval.judge import EntailmentJudge, validate_judge
-    from agentforge.llm import LLMClient
+    from agentforge.llm import judge_client
 
     results = []
     for model in args.models:
-        judge = EntailmentJudge(LLMClient(model=model, max_tokens=256))
+        judge = EntailmentJudge(judge_client(JudgeConfig(model=model)))
         result = validate_judge(judge, min_kappa=args.min_kappa)
         results.append(result)
         print(result.describe())
@@ -199,6 +282,13 @@ def _model_cost_rank(model: str) -> float:
 
     per_in, per_out = MODEL_PRICES[model]
     return per_in + per_out
+
+
+def cmd_load_judge_reference(args: argparse.Namespace) -> int:
+    from agentforge.eval.judge import load_reference_file
+
+    print(json.dumps(load_reference_file(args.path), indent=2))
+    return 0
 
 
 def cmd_review_labels(args: argparse.Namespace) -> int:
@@ -413,6 +503,13 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--path", default="data/arxiv40.jsonl")
     p.set_defaults(func=cmd_load_questions)
 
+    p = sub.add_parser("eval-e2e", help="run one end-to-end arm over the arXiv questions")
+    p.add_argument("--arm", required=True, choices=sorted(E2E_ARMS))
+    p.set_defaults(func=cmd_eval_e2e)
+
+    p = sub.add_parser("report-e2e", help="write the end-to-end table from stored runs")
+    p.set_defaults(func=cmd_report_e2e)
+
     p = sub.add_parser("index", help="build the BM25 and dense indexes")
     p.add_argument("--corpus", default="scifact")
     p.add_argument("--embed-model", dest="embed_model", default="BAAI/bge-base-en-v1.5")
@@ -429,10 +526,14 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("validate-judge", help="score candidate judges, report kappa")
     p.add_argument(
         "--models", nargs="+",
-        default=["claude-haiku-4-5", "claude-sonnet-5", "claude-opus-5"],
+        default=["openai/gpt-oss-20b", "openai/gpt-oss-120b"],
     )
     p.add_argument("--min-kappa", dest="min_kappa", type=float, default=0.70)
     p.set_defaults(func=cmd_validate_judge)
+
+    p = sub.add_parser("load-judge-reference", help="load the judge's reference pairs")
+    p.add_argument("--path", default="data/judge_reference.jsonl")
+    p.set_defaults(func=cmd_load_judge_reference)
 
     p = sub.add_parser("review-labels", help="review reference labels by hand")
     p.set_defaults(func=cmd_review_labels)

@@ -183,16 +183,17 @@ def build_app(
 
 
 def _default_researcher(arm: str) -> Any:
-    """Wire the real stack. Requires ANTHROPIC_API_KEY."""
+    """Wire the real stack. Requires the key for the configured models' provider."""
     from agentforge.agents.research import FourRoleResearcher, SingleAgentResearcher
     from agentforge.config import IngestConfig, RetrievalConfig, RunConfig
     from agentforge.ingest.papers import CORPUS_ID
-    from agentforge.llm import LLMClient
+    from agentforge.llm import generator_client, judge_client
     from agentforge.retrieval.pipeline import Retriever
 
     config = RunConfig(ingest=IngestConfig(corpus_id=CORPUS_ID), retrieval=RetrievalConfig())
     retriever = Retriever(config.retrieval, CORPUS_ID)
-    llm = LLMClient(model=config.generation.model, max_tokens=config.generation.max_tokens)
+    llm = generator_client(config.generation)
+    judge = judge_client(config.judge)
 
     def lookup(chunk_id: str) -> str | None:
         with pool().connection() as conn:
@@ -202,14 +203,14 @@ def _default_researcher(arm: str) -> Any:
         return row["text"] if row else None
 
     if arm == "single_agent":
-        return SingleAgentResearcher(retriever, llm, lookup)
+        return SingleAgentResearcher(retriever, llm, lookup, judge_llm=judge)
     return FourRoleResearcher(
         retriever,
         llm,
         lookup,
         n_subquestions=config.generation.n_subquestions,
         max_verify_retries=config.generation.max_verify_retries,
-        judge_enabled=True,
+        judge_llm=judge,
     )
 
 

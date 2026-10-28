@@ -165,3 +165,37 @@ def test_storing_pairs_twice_does_not_duplicate_them(db):
     store_reference_pairs(PAIRS, label_source="human-reviewed")
     result = validate_judge(judge(agreeing()), min_kappa=0.7)
     assert result.n_pairs == 3
+
+
+def test_reference_file_rejects_a_quote_not_in_its_chunk(db, probe_corpus, tmp_path):
+    import json
+
+    from agentforge.eval.judge import load_reference_file
+
+    path = tmp_path / "ref.jsonl"
+    path.write_text(json.dumps({"chunk_id": "p1:0", "quote": "words that are not there",
+                                "claim": "x", "label": "entailed"}) + "\n")
+    with pytest.raises(MeasurementError, match="not verbatim"):
+        load_reference_file(str(path))
+
+
+def test_reference_reload_never_overwrites_a_human_review(db, probe_corpus, tmp_path):
+    import json
+
+    from agentforge.eval.judge import (
+        HUMAN_REVIEWED,
+        load_reference_file,
+        mark_reviewed,
+        reference_pairs,
+    )
+
+    row = {"chunk_id": "p1:0", "quote": "combines BM25 and dense scores",
+           "claim": "Hybrid retrieval combines BM25 and dense scores.", "label": "entailed"}
+    path = tmp_path / "ref.jsonl"
+    path.write_text(json.dumps(row) + "\n")
+    load_reference_file(str(path))
+    pair = reference_pairs()[0]
+    mark_reviewed(pair["pair_id"], "unsupported")
+    load_reference_file(str(path))
+    after = reference_pairs()[0]
+    assert (after["label"], after["label_source"]) == ("unsupported", HUMAN_REVIEWED)

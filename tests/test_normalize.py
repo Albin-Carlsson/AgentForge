@@ -97,3 +97,10 @@ def test_nul_bytes_do_not_survive_canonicalisation():
 def test_quote_matching_still_works_across_a_stripped_nul():
     chunk_text = "We evaluate on\x00 BEIR's SciFact split."
     assert quote_found("We evaluate on BEIR's SciFact split.", chunk_text)
+
+
+def test_a_compound_hyphen_at_a_line_break_does_not_fake_a_fabrication():
+    # The stored side joins the line break and loses the compound's hyphen.
+    chunk = "performs poorly for English-to-\nVietnamese retrieval, while hybrid"
+    assert quote_found("performs poorly for English-to-Vietnamese retrieval", chunk)
+    assert not quote_found("performs well for English-to-Vietnamese retrieval", chunk)

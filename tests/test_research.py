@@ -167,8 +167,9 @@ def test_the_verifier_never_sees_the_generators_reasoning(db):
             {"verdict": "entailed"},
         ]
     )
+    shared = llm(transport)
     FourRoleResearcher(
-        StubRetriever(), llm(transport), CHUNKS.get, judge_enabled=True
+        StubRetriever(), shared, CHUNKS.get, judge_llm=shared
     ).run("Explain hybrid retrieval please.")
 
     judge_call = transport.calls[-1]

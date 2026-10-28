@@ -183,3 +183,68 @@ def validate_judge(judge: EntailmentJudge, min_kappa: float = 0.70) -> JudgeVali
             ),
         )
     return result
+
+
+REFERENCE_PATH = "data/judge_reference.jsonl"
+_LABELS = set(ENTAILMENT_SCHEMA["properties"]["verdict"]["enum"])
+
+
+def load_reference_file(path: str = REFERENCE_PATH) -> dict[str, int]:
+    """Load reference pairs from the versioned JSONL, verifying every quote.
+
+    A quote not found verbatim in its chunk would make the pair test something
+    other than entailment, so it raises. Labels arrive as MODEL_PENDING (they
+    were drafted by a model, Claude), and a reload never overwrites a pair a
+    human has already reviewed -- that review is the one thing here that cannot
+    be regenerated.
+    """
+    import hashlib
+    import json
+
+    from agentforge.ingest.normalize import quote_found
+
+    with open(path, encoding="utf-8") as handle:
+        rows = [json.loads(line) for line in handle if line.strip()]
+    with pool().connection() as conn:
+        for lineno, row in enumerate(rows, start=1):
+            if set(row) != {"chunk_id", "quote", "claim", "label"}:
+                raise MeasurementError(f"{path}:{lineno}: unexpected fields {sorted(row)}")
+            if row["label"] not in _LABELS:
+                raise MeasurementError(f"{path}:{lineno}: label {row['label']!r}")
+            chunk = conn.execute(
+                "SELECT text FROM chunks WHERE chunk_id = %s", (row["chunk_id"],)
+            ).fetchone()
+            if chunk is None or not quote_found(row["quote"], chunk["text"]):
+                raise MeasurementError(f"{path}:{lineno}: quote not verbatim in {row['chunk_id']}")
+
+        ids = [
+            hashlib.sha256(f"{r['claim']}\x00{r['quote']}".encode()).hexdigest()[:16] for r in rows
+        ]
+        if len(set(ids)) != len(ids):
+            raise MeasurementError(f"{path}: duplicate (claim, quote) pairs")
+        stale = conn.execute(
+            "SELECT count(*) AS n FROM judge_reference WHERE NOT (pair_id = ANY(%s))", (ids,)
+        ).fetchone()["n"]
+        if stale:
+            raise MeasurementError(
+                f"{stale} stored reference pairs are not in {path}; kappa would be computed "
+                "over a set nobody can see. Remove them deliberately."
+            )
+        with conn.cursor() as cur:
+            cur.executemany(
+                """
+                INSERT INTO judge_reference (pair_id, claim_text, quote, chunk_id, label, label_source)
+                VALUES (%s,%s,%s,%s,%s,%s)
+                ON CONFLICT (pair_id) DO UPDATE SET label = EXCLUDED.label
+                WHERE judge_reference.label_source <> %s
+                """,
+                [
+                    (pid, r["claim"], r["quote"], r["chunk_id"], r["label"], MODEL_PENDING,
+                     HUMAN_REVIEWED)
+                    for pid, r in zip(ids, rows, strict=True)
+                ],
+            )
+        reviewed = conn.execute(
+            "SELECT count(*) AS n FROM judge_reference WHERE label_source = %s", (HUMAN_REVIEWED,)
+        ).fetchone()["n"]
+    return {"pairs": len(rows), "human_reviewed": reviewed}

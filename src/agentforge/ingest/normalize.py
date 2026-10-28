@@ -90,8 +90,15 @@ def quote_found(quote: str, chunk_text: str) -> bool:
 
     An empty quote is not a citation, so it cannot be found -- a model emitting
     one has failed to cite, which is a model-quality outcome and gets recorded.
+
+    Hyphens are ignored on both sides. Joining hyphen line breaks is lossy for a
+    genuine compound split across lines ("English-to-\nVietnamese" is stored as
+    "English-toVietnamese"), so a model quoting the paper exactly would otherwise
+    be counted as fabricating -- a parser artefact inflating the headline
+    number, found while building the judge's reference pairs. A quote differing
+    from its source only in hyphens is verbatim for every purpose this serves.
     """
-    needle = canonical(quote)
+    needle = canonical(quote).replace("-", "")
     if not needle:
         return False
-    return needle in canonical(chunk_text)
+    return needle in canonical(chunk_text).replace("-", "")

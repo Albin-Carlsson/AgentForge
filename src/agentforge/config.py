@@ -39,11 +39,28 @@ EMBED_DIMS: dict[str, int] = {
 }
 
 # Measured token counts are priced at list. USD per 1M tokens, (input, output).
+# Groq rates from console.groq.com/docs/models, read 2026-10-28.
 MODEL_PRICES: dict[str, tuple[float, float]] = {
     "claude-haiku-4-5": (1.00, 5.00),
     "claude-sonnet-5": (2.00, 10.00),
     "claude-opus-5": (5.00, 25.00),
+    "openai/gpt-oss-20b": (0.075, 0.30),
+    "openai/gpt-oss-120b": (0.15, 0.60),
+    "qwen/qwen3.8-27b": (0.80, 4.00),
 }
+
+# Which API serves each model. Explicit rather than inferred from the id's
+# shape, so a typo cannot route a call to the wrong provider.
+MODEL_PROVIDERS: dict[str, str] = {
+    "claude-haiku-4-5": "anthropic",
+    "claude-sonnet-5": "anthropic",
+    "claude-opus-5": "anthropic",
+    "openai/gpt-oss-20b": "groq",
+    "openai/gpt-oss-120b": "groq",
+    "qwen/qwen3.8-27b": "groq",
+}
+assert MODEL_PROVIDERS.keys() == MODEL_PRICES.keys()
+
 
 
 class _Frozen(BaseModel):
@@ -100,9 +117,17 @@ class GenerationConfig(_Frozen):
     """The agent graph and the model driving it."""
 
     graph: Graph = "four_role"
-    model: str = "claude-haiku-4-5"
-    max_tokens: int = 8192
-    thinking_budget: int | None = None   # Haiku 4.5 takes budget_tokens, not adaptive
+    # The only key this project runs on is a Groq free tier, so the shipped
+    # generator is the strongest production Groq model. Its 200K tokens/day
+    # quota is why runs are resumable through the cache.
+    model: str = "openai/gpt-oss-120b"
+    # Output plus reasoning. Kept tight because max_tokens counts against the
+    # free tier's 8K tokens/minute.
+    max_tokens: int = 3072
+    # gpt-oss reasons before answering; reasoning tokens are billed and count
+    # against the rate limit. "low" is the cheapest setting. It reaches the
+    # transport as the `thinking` config, so it is in every cache key.
+    reasoning_effort: str | None = "low"
     prompt_version: str = "v1"
     n_subquestions: int = 4              # Planner fan-out width
     max_verify_retries: int = 1          # bounded: one retry, then the claim ships flagged
@@ -122,7 +147,11 @@ class GenerationConfig(_Frozen):
 class JudgeConfig(_Frozen):
     """The measuring instrument. Frozen once validated, and versioned."""
 
-    model: str = "claude-haiku-4-5"
+    # A different model from the generator, both so the judge is not grading
+    # its own family's output and so the two draw on separate daily quotas.
+    # Chosen by `validate-judge`; see results/judge-validation.md.
+    model: str = "openai/gpt-oss-20b"
+    reasoning_effort: str | None = "low"
     prompt_version: str = "v1"
     min_kappa: float = 0.70              # below this the judge is not a usable instrument
 
