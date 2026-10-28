@@ -51,18 +51,39 @@ zero.
    recovers most of that but still loses recall@10 significantly against no
    reranking. So this is not "the wrong reranker was picked" — it is that a
    cross-encoder trained on other data reorders a good `bge-base` ranking for
-   the worse. **Reranking therefore ships disabled**, with the measurement cited
-   at the config field.
+   the worse *on SciFact*.
 
-> Had this been built in résumé-bullet order, reranking would have shipped on by
-> default and the claim "improved retrieval with cross-encoder reranking" would
-> have been false by four points. That is the argument for building the harness
-> before the features.
+> On SciFact alone, reranking would ship off. On the arXiv tier below it wins by
+> 18 nDCG points, so it ships on, with both measurements cited at the config
+> field. A résumé bullet would have been right for the wrong reason. Carrying
+> SciFact's verdict over would have shipped the product 18 points worse. The
+> sign of a retrieval component's effect depended on the domain, and only
+> measuring on the served corpus found that out.
 
 ### Retrieval on the project's own corpus — 300 arXiv papers, 27,303 chunks
 
-`[M2]` — regenerate with `make eval-retrieval CORPUS=arxiv-rag TIER=arxiv40`.
-Reranking is re-measured here because the domain differs from SciFact.
+`make eval-retrieval CORPUS=arxiv-rag TIER=arxiv40`. Scored against span-level
+gold: the chunks that state each of the 40 questions' answers.
+
+| Arm | recall@10 | nDCG@10 | MRR | knob changed | paired Δ nDCG@10 (95% CI) |
+|---|---|---|---|---|---|
+| BM25 only (`pg_search`) | 0.6441 | 0.5027 | 0.5724 | — baseline | — |
+| Dense only (`bge-base`, HNSW) | 0.5404 | 0.4156 | 0.4938 | `retriever` | −0.0871 [−0.2270, +0.0488] *ns* |
+| Hybrid (RRF) | 0.6648 | 0.5017 | 0.5556 | `retriever` | **+0.0861** [+0.0206, +0.1511] |
+| + MiniLM rerank (MS MARCO) | 0.6864 | 0.5809 | 0.7001 | `rerank_model` | +0.0792 [−0.0053, +0.1687] *ns* |
+| + `bge-reranker-base` | **0.7497** | **0.6824** | **0.8027** | `rerank_model` | **+0.1015** [+0.0385, +0.1746] |
+
+Against plain hybrid directly, `bge-reranker-base` gains **+0.181 nDCG@10
+[+0.103, +0.261]** and **+0.085 recall@10 [+0.024, +0.158]**, so it is the
+shipped default.
+
+- **BM25 beats dense here**, the reverse of SciFact. Many of these questions
+  hinge on exact numbers and named methods, which favour lexical matching. The
+  questions were also drafted from their gold chunks, which favours BM25 (see
+  limitations). The two biases cannot be separated at n=40.
+- **The interval width is the point of the SciFact tier.** At n=40, dense vs
+  BM25 spans 27 points and is not significant. The reranker effect clears it
+  only because it is large.
 
 ### PDF parser, measured against arXiv's own LaTeXML rendering
 
@@ -191,7 +212,8 @@ its own groundedness numbers.
 | Lexical | **real Okapi BM25** via ParadeDB `pg_search` 0.26 (Tantivy) — not `ts_rank` |
 | Dense | pgvector 0.8 HNSW, `bge-base-en-v1.5`, local, on MPS |
 | Fusion | Reciprocal Rank Fusion (rank-based, so scale-free) |
-| Generation | `claude-haiku-4-5`, structured outputs, content-addressed cache |
+| Generation | `openai/gpt-oss-120b` via Groq (strict JSON-schema decoding), content-addressed cache |
+| Judge | `openai/gpt-oss-20b` via Groq: a different model from the generator, chosen by κ |
 | Eval | own Postgres tables; config-hashed runs; paired bootstrap; Cohen's κ |
 | Tracing | Langfuse Cloud (per-stage spans = the latency decomposition) |
 | Serving | FastAPI, job-based; Docker Compose, two services |
@@ -215,8 +237,12 @@ make eval-retrieval          # the ablation table
 make measure-parser          # parser fidelity
 make test                    # 308 tests, integration-level against the live db
 
-# Requires ANTHROPIC_API_KEY:
+# Requires GROQ_API_KEY (the free tier is enough, given a few days):
+make load-questions          # the frozen 40-question set
+make load-judge-reference    # 100 reference pairs, quotes verified verbatim
 make validate-judge          # κ table
+make eval-e2e ARM=control    # then ARM=single, ARM=graph; resumable
+make report-e2e              # the end-to-end table
 make serve                   # http://localhost:8000/docs
 ```
 
@@ -248,8 +274,9 @@ The rule needs one sharp edge to be workable, and it is in
 
 ## Honest limitations
 
-- **Cross-encoder reranking lost to not reranking** on SciFact, with both models
-  tried. It ships disabled, pending re-measurement on the arXiv tier.
+- **Reranking's sign depends on the domain.** It lost on SciFact with both models
+  tried, and won by 18 nDCG points on arXiv. It ships on, measured at n=40,
+  which is enough for an effect this size but not for small ones.
 - **The parser detects about a third of the authors' section headings** (recall
   0.328 over 287 papers). Text coverage stays at 0.981, so this costs citation granularity rather than
   retrievability.

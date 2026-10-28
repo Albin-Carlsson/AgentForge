@@ -151,8 +151,8 @@ def validate_judge(judge: EntailmentJudge, min_kappa: float = 0.70) -> JudgeVali
         )
     if label_source != HUMAN_REVIEWED:
         notes.append(
-            "reference labels are model-generated and pending human review, so this "
-            "figure measures model self-consistency, not human agreement."
+            "reference labels are model-drafted and pending human review, so this "
+            "figure measures agreement with the drafting model, not with a human."
         )
     note = " ".join(notes) or "within tolerance against human-reviewed labels."
 

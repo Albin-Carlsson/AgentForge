@@ -95,3 +95,22 @@ def test_every_priced_model_has_a_provider_and_unknown_models_raise():
 def test_a_missing_key_raises():
     with pytest.raises(ConfigError, match="GROQ_API_KEY"):
         groq_transport("")
+
+
+def test_a_network_blip_is_resent_then_a_persistent_one_raises():
+    import urllib.error
+
+    class Flaky(ScriptedPost):
+        def __init__(self, failures, *responses):
+            super().__init__(*responses)
+            self.failures = failures
+
+        def __call__(self, url, headers, body):
+            if self.failures:
+                self.failures -= 1
+                raise urllib.error.URLError("nodename nor servname provided")
+            return super().__call__(url, headers, body)
+
+    assert call(groq_transport("k", sleep=lambda s: None, post=Flaky(2, ok())))["parsed"]
+    with pytest.raises(urllib.error.URLError):
+        call(groq_transport("k", sleep=lambda s: None, post=Flaky(9, ok())))

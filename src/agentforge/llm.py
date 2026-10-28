@@ -204,6 +204,9 @@ GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 # retry-after means the daily quota is spent: stop, and resume from the cache.
 MAX_RATE_LIMIT_WAIT_S = 90.0
 MAX_RATE_LIMIT_RETRIES = 6
+# A dropped connection or DNS blip is resent unchanged, a bounded number of
+# times. The same request either succeeds or raises; nothing is degraded.
+MAX_NETWORK_RETRIES = 3
 
 
 def groq_transport(api_key: str | None = None, sleep=time.sleep, post=None) -> Transport:
@@ -220,15 +223,33 @@ def groq_transport(api_key: str | None = None, sleep=time.sleep, post=None) -> T
     if not api_key:
         raise ConfigError("GROQ_API_KEY is unset; Groq-served models need it.")
 
+    import ssl
+
+    import certifi
+
+    # The python.org macOS build ships without a CA bundle, so the default
+    # context cannot verify anything. certifi's bundle, never verification off.
+    tls = ssl.create_default_context(cafile=certifi.where())
+
     def _post(url: str, headers: dict[str, str], body: bytes) -> tuple[int, dict, bytes]:
         request = urllib.request.Request(url, data=body, headers=headers, method="POST")
         try:
-            with urllib.request.urlopen(request, timeout=180) as response:
+            with urllib.request.urlopen(request, timeout=180, context=tls) as response:
                 return response.status, dict(response.headers), response.read()
         except urllib.error.HTTPError as exc:
             return exc.code, dict(exc.headers), exc.read()
 
-    send = post or _post
+    raw_send = post or _post
+
+    def send(url: str, headers: dict[str, str], body: bytes) -> tuple[int, dict, bytes]:
+        for attempt in range(MAX_NETWORK_RETRIES + 1):
+            try:
+                return raw_send(url, headers, body)
+            except (urllib.error.URLError, TimeoutError, ConnectionError):
+                if attempt == MAX_NETWORK_RETRIES:
+                    raise
+                sleep(5.0 * (attempt + 1))
+        raise AssertionError("unreachable")
 
     def call(*, model, system, messages, max_tokens, schema, thinking) -> dict[str, Any]:
         payload: dict[str, Any] = {
