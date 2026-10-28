@@ -332,3 +332,46 @@ line-based PDF parser cannot detect them by construction. On arXiv:2610.32318
 they are 25 of 38 LaTeXML headings and alone pushed apparent recall to 0.158.
 Excluding them is defining the metric to match the claim being made -- that the
 parser recovers section structure, not that it recovers every run-in label.
+
+### Reranking changed sign with the domain (§8, §11)
+
+SciFact said reranking loses, so it shipped off with a note to re-measure on
+the arXiv tier. Re-measured, `bge-reranker-base` over plain hybrid gains +0.181
+nDCG@10 [+0.103, +0.261], so it ships on. The SciFact result was not wrong. It
+answered a question about a different corpus, which is the argument for the
+served corpus having its own tier.
+
+### Models: Groq, not Anthropic (§11)
+
+The only key available was a Groq free tier, so generation runs on
+`openai/gpt-oss-120b` and judging on `openai/gpt-oss-20b`. That keeps the judge
+a different model from the generator, and gives it a separate daily quota. The
+quota (200K tokens/day per model) is smaller than one pass of the four-role
+arm, which made the content-addressed cache load-bearing: a run stopped by the
+daily quota resumes the next day by replaying completed calls for free. The
+contamination argument still holds empirically. The no-retrieval control
+scores 0.021 correctness on the post-cutoff corpus.
+
+### No Synthesizer model, no web sources (§2, §3)
+
+The four-role graph never got an LLM Synthesizer. The report is rendered
+deterministically from the verified claims, which keeps one more model call out
+of the measurement path. That fits §2's own argument, so it stays. Web-source
+ingestion was not built, and the README no longer claims it.
+
+### Correctness is deterministic, not judged (§5)
+
+A correctness judge would have been a second instrument needing its own κ.
+Each frozen question instead carries `answer_keys`, the facts a correct answer
+must state, scored by normalised string match. It is strict ("seventy-six
+percent" misses "76%"), and the strictness is identical across arms, so the
+deltas are unaffected.
+
+### Two measurement artefacts found while building the reference pairs
+
+`canonical()` joins hyphen line breaks, which also deletes the hyphen of a
+genuine compound split across lines. A model quoting "English-to-Vietnamese"
+exactly was scored as fabricating. Quote matching is now hyphen-insensitive.
+And the test suite shared the real database while its cleanup deleted
+`llm_cache`, so every test run silently discarded the cache a multi-day run
+resumes from. Tests now run against a derived `<db>_test` database.
