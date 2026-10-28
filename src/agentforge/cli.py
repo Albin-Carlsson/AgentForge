@@ -25,7 +25,13 @@ LADDER = [
     ("BM25 only (pg_search)", {"retriever": "bm25", "rerank_model": None}),
     ("Dense only (pgvector)", {"retriever": "dense", "rerank_model": None}),
     ("Hybrid (RRF)", {"retriever": "hybrid", "rerank_model": None}),
-    ("Hybrid + MiniLM rerank (MS MARCO)", {"retriever": "hybrid"}),
+    # Named explicitly: this rung once relied on the config default, which was
+    # switched off after the SciFact measurement, and it silently became a copy
+    # of the rung above until the one-knob check refused to tabulate it.
+    (
+        "Hybrid + MiniLM rerank (MS MARCO)",
+        {"retriever": "hybrid", "rerank_model": "cross-encoder/ms-marco-MiniLM-L-6-v2"},
+    ),
     # Fifth rung, one knob from the fourth. The MiniLM cross-encoder is trained
     # on MS MARCO web-search pairs while SciFact is scientific claim
     # verification, so "reranking hurts" and "this reranker hurts" are different

@@ -35,9 +35,9 @@ def test_config_does_not_expose_bm25_k1_or_b():
     assert "bm25_b" not in fields
 
 
-def test_reranking_is_off_by_default_because_it_was_measured_to_lose():
-    """On SciFact both rerankers lost to no reranking; the default records that."""
-    assert RetrievalConfig().rerank_model is None
+def test_the_default_reranker_is_the_one_measured_to_win_on_the_product_corpus():
+    """Lost on SciFact, won on arXiv (+0.181 nDCG@10); the default records the latter."""
+    assert RetrievalConfig().rerank_model == "BAAI/bge-reranker-base"
 
 
 def test_config_exposes_the_tokenizer_knobs_that_are_real():
