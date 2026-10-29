@@ -11,18 +11,27 @@ ENV PYTHONUNBUFFERED=1 \
 WORKDIR /app
 
 # PyMuPDF ships manylinux wheels, so no build toolchain is needed.
+# CPU-only PyTorch first: the container has no GPU, and the default wheel adds
+# several GB of CUDA libraries (the same thing that filled CI's disk).
+RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
+
 COPY pyproject.toml ./
 COPY src ./src
 RUN pip install --no-cache-dir -e .
 
-# Pre-download the embedding model. The reranker is NOT fetched: it ships
-# disabled by default after measuring as a 4.4-point nDCG regression on SciFact
-# (see results/retrieval-scifact.md), so pulling 90 MB for a code path that is
-# off would be waste.
+# Pre-download both models the shipped config uses: the embedder and the
+# reranker, which ships on after measuring +0.181 nDCG@10 on the arXiv tier
+# (results/retrieval-arxiv40.md).
 RUN python -c "\
-from sentence_transformers import SentenceTransformer; \
-SentenceTransformer('BAAI/bge-base-en-v1.5', cache_folder='/models')" \
+from sentence_transformers import CrossEncoder, SentenceTransformer; \
+SentenceTransformer('BAAI/bge-base-en-v1.5', cache_folder='/models'); \
+CrossEncoder('BAAI/bge-reranker-base', cache_folder='/models')" \
     && find /models -name '*.onnx' -delete
+
+# Serve from the baked models only. Without this the hub is still contacted at
+# runtime, a network dependency the baked models exist to remove; a missing
+# model now fails loudly instead of downloading.
+ENV HF_HUB_OFFLINE=1
 
 COPY Makefile README.md ./
 COPY results ./results
