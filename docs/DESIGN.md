@@ -1,6 +1,6 @@
-# AgentForge — design decisions
+# AgentForge: design decisions
 
-Fifteen decisions, each resolved before any code was written, recorded here with
+Fourteen decisions, each resolved before any code was written, recorded here with
 the reasoning and the rejected alternative. The ordering is the dependency
 ordering: each decision constrains the ones below it.
 
@@ -9,7 +9,7 @@ ordering: each decision constrains the ones below it.
 Résumé proof that survives a 45-minute technical interview. The deliverable is
 not the system; it is the ability to defend every decision in it, backed by a
 repo someone can clone and run. The failure mode being designed against is not
-"incomplete" but "twelve shallow wrappers and no numbers" — because the second
+"incomplete" but "twelve shallow wrappers and no numbers", because the second
 interview question is always *"what did reranking actually buy you?"*
 
 **Consequence:** depth on two subsystems, honest minimal versions of the rest,
@@ -19,7 +19,7 @@ and a measured number behind every claim in the résumé bullet.
 
 Everyone with an LLM project built RAG; almost nobody can state their retrieval
 recall@10 or show a regression gate that failed. The eval work is the scarce
-skill, and it is what makes the retrieval claims defensible at all — "hybrid
+skill, and it is what makes the retrieval claims defensible at all. "Hybrid
 retrieval with reranking" is a claim about quality, so without the harness there
 is no baseline to compare against.
 
@@ -37,7 +37,7 @@ most inflated term in this field, so the justification has to be measurable:
    by mostly-irrelevant text. Separate Researchers each hold only their own
    evidence.
 2. **Adversarial separation.** The Verifier must not see the Synthesizer's
-   reasoning — only a claim and its cited span. Sharing context makes a verifier
+   reasoning, only a claim and its cited span. Sharing context makes a verifier
    rubber-stamp its own prior reasoning, which is what turns evidence
    verification from a real check into decoration.
 3. **Parallelism.** Wall-clock latency scales with the slowest sub-question
@@ -53,7 +53,7 @@ Both are non-deterministic, expensive, and cannot produce stable numbers.
 
 The expensive part of evaluation is labels, and writing labels requires
 understanding the documents. In a known domain that is an afternoon; in SEC
-filings it is a month and the labels are subtly wrong — which is worse than no
+filings it is a month and the labels are subtly wrong, which is worse than no
 labels, because every reported number inherits the error.
 
 Also: multi-hop questions arise naturally ("which of these use BEIR, and how do
@@ -76,7 +76,7 @@ under one follow-up question is worth less than two that do not.
 Public benchmarks and self-curated sets fail in opposite directions, which is
 why both are here. A benchmark gives statistical power (a 2-point delta is real
 at N=300; at N=40 the CI is ±7 and reranking's effect is undetectable), free
-labels, and external calibration — but it is contaminated by pretraining, ships
+labels, and external calibration, but it is contaminated by pretraining, ships
 as clean pre-chunked text that bypasses the entire ingestion path, and asks for
 short factoid answers rather than cited reports. The curated set exercises
 the real pipeline end to end, is contamination-free by construction (post-cutoff
@@ -119,7 +119,7 @@ configs differing in more than one field (`config.assert_comparable`).
 
 ## 7. Ingestion: PyMuPDF, structure-aware small-to-big
 
-Chunking is not a retrieval detail — the chunk **is** the citation span, so it
+Chunking is not a retrieval detail: the chunk **is** the citation span, so it
 sets the resolution of the entire groundedness story. 1024-token chunks make a
 citation point at half a page and the judge's entailment call mushy.
 
@@ -134,14 +134,14 @@ citation point at half a page and the judge's entailment call mushy.
 
 ## 8. Lexical retrieval: real BM25 via `pg_search`, fused with RRF
 
-Postgres `ts_rank_cd` is **not** BM25 — different term-frequency saturation,
+Postgres `ts_rank_cd` is **not** BM25. It has different term-frequency saturation,
 different length normalisation, no `k1`/`b`. Writing "BM25" on a résumé and
 having it turn out to be `tsvector` is the kind of overstatement that costs more
 than the keyword gained. ParadeDB's `pg_search` is Tantivy-backed Okapi BM25
 inside Postgres, in the same image as pgvector.
 
 **Why one store:** OpenSearch alongside pgvector means a dual-write path and a
-window where a chunk is lexically searchable but not semantically — or a reindex
+window where a chunk is lexically searchable but not semantically, or a reindex
 that half-fails. At ~50k chunks that complexity buys nothing. The threshold at
 which it would is single-digit millions of chunks.
 
@@ -164,17 +164,7 @@ why index building is an explicit step that `search` refuses to perform
 implicitly); and `ORDER BY paradedb.score(id)` must be standalone, since
 wrapping it silently loses the Top-K index scan.
 
-## 9. No fallbacks, anywhere
-
-Every error raises. No `except: pass`, no degraded path, no defaults for absent
-config, no partial ingests. A silent fallback corrupts attribution: a reranker
-that quietly no-ops, or an ingest that drops the documents that failed to parse,
-inflates the reported numbers.
-
-The boundary — defect versus model-quality outcome — is in
-[`src/agentforge/errors.py`](../src/agentforge/errors.py).
-
-## 10. Structured claims with verbatim quotes
+## 9. Structured claims with verbatim quotes
 
 The Synthesizer emits `{claim_text, citations: [{chunk_id, verbatim_quote}]}` as
 structure; readable prose is rendered from it.
@@ -186,7 +176,7 @@ structure; readable prose is rendered from it.
 - **Fabrication detection becomes deterministic.** A quote either is or is not an
   exact substring of its chunk. `str.find`, not a model call: zero cost, zero
   variance. This splits the hallucination metric into two mechanically different
-  classes — *fabricated quote* (deterministic, should be ~0) and *quote does not
+  classes: *fabricated quote* (deterministic, should be ~0) and *quote does not
   entail claim* (genuinely fuzzy, where κ matters).
 - Normalisation (ligatures, soft hyphens, NBSP from PDF extraction) is applied
   once, canonically, to both sides. It has its own unit tests, because it is the
@@ -195,12 +185,12 @@ structure; readable prose is rendered from it.
 **Cost accepted:** reports read more staccato than free prose. Right trade for a
 research tool; the renderer groups claims by sub-question to recover flow.
 
-## 11. Models
+## 10. Models
 
 | Role | Choice | Why |
 |---|---|---|
 | Embeddings | `bge-base-en-v1.5` (440 MB, 768-d) | English-only corpus; MPS makes a full re-embed minutes, so model size is an arm |
-| Reranker | `ms-marco-MiniLM-L-6-v2` (90 MB) | tens of ms for 50 candidates on an M3 — the latency story is concrete |
+| Reranker | `ms-marco-MiniLM-L-6-v2` (90 MB) | tens of ms for 50 candidates on an M3, so the latency story is concrete |
 | Generation + judge | `claude-haiku-4-5` | ~$0.15/question; whole project lands ~$20–30 |
 
 Local retrieval models are not a cost decision but a measurement one: a
@@ -211,21 +201,21 @@ so this was a choice either way.
 **Cost as a metric stays honest:** token counts and latency are measured
 directly; the dollar column is computed from the published rate card.
 
-## 12. Verifier rejection: defect versus measurement
+## 11. Verifier rejection: defect versus measurement
 
 A model emitting an unsupported claim is not a bug; it is the phenomenon the
 system exists to detect. If that crashed the request, the tool could not report
 its own primary finding.
 
 - Model-quality outcomes are recorded and **surfaced in the report as explicitly
-  unverified**. Dropping them would be a fallback — it hides the failure the
+  unverified**. Dropping them would hide the failure the
   eval exists to count.
 - **One bounded retry** on the verify edge, with the rejection reason fed back to
   the Researcher. Unbounded self-correction is how these graphs become
   unmeasurable. Whether the retry rescues claims or just burns tokens is itself
   an arm.
 
-## 13. Latency and cost, measured honestly
+## 12. Latency and cost, measured honestly
 
 - **The LLM cache destroys latency measurement.** Cached calls return in
   microseconds, so latency comes only from runs flagged `cache_bypass`. Asking
@@ -238,18 +228,18 @@ its own primary finding.
   path only (Planner + Researchers + Synthesizer + inline verification),
   excluding the eval-time judge; uncached list prices, cache savings reported
   separately. Latency = warm index, sequential single request, excluding
-  one-time ingestion. No concurrency testing — different project.
+  one-time ingestion. No concurrency testing; that is a different project.
 
 This is also what earns Langfuse its place: the per-stage spans *are* the
 latency decomposition, so it stops being a keyword and becomes where a number
 comes from.
 
-## 14. Build order: every milestone ends in a number
+## 13. Build order: every milestone ends in a number
 
 | M | Scope | Ends in |
 |---|---|---|
 | M0 | README + bullet with blanks | the spec |
-| M1 | free retrieval tier on SciFact — no LLM, no PDFs, no agents | first ablation table |
+| M1 | free retrieval tier on SciFact; no LLM, no PDFs, no agents | first ablation table |
 | M2 | arXiv ingestion, PyMuPDF, small-to-big | parser section-recall %; M1 arms on the real corpus |
 | M3 | single-agent baseline, structured claims, quote-match | fabricated-quote rate |
 | M4 | 40 frozen questions, judge, 100 labelled pairs, κ | groundedness + a validated instrument |
@@ -260,11 +250,11 @@ comes from.
 config hashing) so it fails in week one rather than week five. SciFact abstracts
 are short, so chunking does not block it.
 
-**LangGraph is M5, not M1** — building orchestration around a retrieval system
+**LangGraph is M5, not M1**. Building orchestration around a retrieval system
 whose quality cannot yet be measured is exactly how this becomes twelve shallow
 wrappers.
 
-## 15. The deliverable is the README
+## 14. The deliverable is the README
 
 Four artefacts, and the code serves them: the bullet with numbers in it, a README
 an interviewer reads in 90 seconds, a 60-second demo capture, one short write-up
@@ -272,7 +262,7 @@ of a surprising finding.
 
 **The governing rule:** every noun in the résumé bullet maps to a file in this
 repo and a number in the README. The biggest risk is not an unimpressive project
-but one caught overstatement — the moment "datasets" or "BM25" turns out not to
+but one caught overstatement: the moment "datasets" or "BM25" turns out not to
 exist as claimed, every other number becomes suspect.
 
 
@@ -333,7 +323,7 @@ they are 25 of 38 LaTeXML headings and alone pushed apparent recall to 0.158.
 Excluding them is defining the metric to match the claim being made -- that the
 parser recovers section structure, not that it recovers every run-in label.
 
-### Reranking changed sign with the domain (§8, §11)
+### Reranking changed sign with the domain (§8, §10)
 
 SciFact said reranking loses, so it shipped off with a note to re-measure on
 the arXiv tier. Re-measured, `bge-reranker-base` over plain hybrid gains +0.181
@@ -341,7 +331,7 @@ nDCG@10 [+0.103, +0.261], so it ships on. The SciFact result was not wrong. It
 answered a question about a different corpus, which is the argument for the
 served corpus having its own tier.
 
-### Models: Claude Haiku 5.5 for generation and judging (§11)
+### Models: Claude Haiku 5.5 for generation and judging (§10)
 
 Generation and judging both run on `claude-haiku-5-5` at low effort, the
 cheapest current Claude model, to fit a small budget. That gives up §5's

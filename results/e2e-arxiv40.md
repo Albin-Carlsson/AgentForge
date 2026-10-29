@@ -1,4 +1,4 @@
-# End-to-end — 40 arXiv questions
+# End-to-end: 40 arXiv questions
 
 Generator `claude-haiku-5-5` (effort=low), judge `claude-haiku-5-5`, retrieval: hybrid, final_k=8.
 Correctness is deterministic key-fact recall against each question's
@@ -6,7 +6,7 @@ Correctness is deterministic key-fact recall against each question's
 
 | Arm | correctness | citations | groundedness | fabricated quotes | unsupported (of found) | cited doc in gold | gold chunk cited | tokens/question | list cost |
 |---|---|---|---|---|---|---|---|---|---|
-| No-retrieval control | **0.067** | 0 | — | — | — | — | — | 502 | $0.0051 |
+| No-retrieval control | **0.067** | 0 | n/a | n/a | n/a | n/a | n/a | 502 | $0.0051 |
 | Single agent | **0.829** | 170 | 0.535 | 0.018 | 0.455 | 0.988 | 0.925 | 6,684 | $0.0374 |
 | Four-role graph | **0.873** | 462 | 0.630 | 0.000 | 0.370 | 0.952 | 0.975 | 20,466 | $0.1131 |
 | Four-role graph, no retry | **0.873** | 427 | 0.614 | 0.033 | 0.366 | 0.948 | 0.975 | 18,175 | $0.1010 |

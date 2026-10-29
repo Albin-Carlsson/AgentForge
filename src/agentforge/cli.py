@@ -156,11 +156,11 @@ def cmd_report_e2e(args: argparse.Namespace) -> int:
     scores = {arm: e2e.score_e2e_run(run) for arm, run in runs.items()}
 
     def pct(x):
-        return "—" if x is None else f"{x:.3f}"
+        return "n/a" if x is None else f"{x:.3f}"
 
     config = _e2e_config("graph", args.generator)
     lines = [
-        "# End-to-end — 40 arXiv questions",
+        "# End-to-end: 40 arXiv questions",
         "",
         (f"Generator `{config.generation.model}` (effort="
         f"{config.generation.effort}), judge `{config.judge.model}`, "
@@ -233,7 +233,7 @@ def _latest_finished(arm_label: str, tier: str) -> str | None:
 def _write_ladder(tier: str, runs: list[tuple[str, str]], k: int, metric: str) -> pathlib.Path:
     steps = report.build_ladder(runs, metric=metric, k=k)
     body = (
-        f"# Retrieval ablation — {tier}\n\n"
+        f"# Retrieval ablation: {tier}\n\n"
         f"{report.environment_note()}"
         f"- Scoring cutoff k={k}, pipeline final_k={LADDER_FINAL_K} "
         f"(final_k must be >= k or every arm is capped at recall@final_k)\n\n"
@@ -450,11 +450,11 @@ def cmd_measure_parser(args: argparse.Namespace) -> int:
         "|---|---|---|---|---|---|---|---|---|",
     ]
     for r in rows:
-        recall = f"{r['recall']:.3f}" if r["recall"] is not None else "—"
-        precision = f"{r['precision']:.3f}" if r["precision"] is not None else "—"
+        recall = f"{r['recall']:.3f}" if r["recall"] is not None else "n/a"
+        precision = f"{r['precision']:.3f}" if r["precision"] is not None else "n/a"
         body.append(
             f"| {r['paper']} | {r['pages']} | {r['coverage']:.3f} | {recall} | "
-            f"{precision} | {r['truth'] or '—'} | {r['found']} | {r['run_in'] or '—'} | "
+            f"{precision} | {r['truth'] or 'n/a'} | {r['found']} | {r['run_in'] or 'n/a'} | "
             f"{r['gap'] or ''} |"
         )
     body.append("")

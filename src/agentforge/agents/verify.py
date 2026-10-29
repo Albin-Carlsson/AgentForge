@@ -229,7 +229,7 @@ def render_report(
                     where = f", p. {source['page']}"
                 title = source.get("title") or verdict.chunk_id
                 footnotes.append(
-                    f'[^{marker}]: {title}{where} — "{verdict.quote}" '
+                    f'[^{marker}]: {title}{where}: "{verdict.quote}" '
                     f"(`{verdict.chunk_id}`)"
                 )
                 if verdict.entailed == "contradicted":
@@ -261,7 +261,7 @@ def render_report(
     if stats["unsupported"]:
         details.append(f"{stats['unsupported']} unsupported")
     if details:
-        summary += " — " + ", ".join(details)
+        summary += "; " + ", ".join(details)
 
     parts = [body, "", "---", "", summary]
     if footnotes:

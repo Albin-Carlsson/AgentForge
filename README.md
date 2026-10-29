@@ -1,7 +1,7 @@
 # AgentForge
 
 A multi-agent research assistant that turns arXiv PDFs into citation-backed
-reports — and the evaluation harness it was tuned with.
+reports, and the evaluation harness it was tuned with.
 
 Every number below was produced by `make` targets in this repo and is
 regenerated from SQL, not typed by hand.
@@ -17,7 +17,7 @@ make eval-retrieval      # the first table below. no key, no cost
 
 ## Results
 
-### Retrieval ablation — BEIR SciFact, 300 queries, no LLM in the loop
+### Retrieval ablation: BEIR SciFact, 300 queries, no LLM in the loop
 
 Retrieval metrics are computed from ranks against gold qrels, so this table
 costs nothing and can be re-run without limit. That is *why* every parameter
@@ -25,14 +25,14 @@ here was tuned rather than chosen.
 
 | Arm | recall@10 | nDCG@10 | MRR | knob changed | paired Δ nDCG@10 (95% CI) |
 |---|---|---|---|---|---|
-| BM25 only (`pg_search`) | 0.8127 | 0.6843 | 0.6519 | — baseline | — |
+| BM25 only (`pg_search`) | 0.8127 | 0.6843 | 0.6519 | baseline | n/a |
 | Dense only (`bge-base`, HNSW) | 0.8676 | **0.7400** | **0.7079** | `retriever` | **+0.0556** [+0.0227, +0.0880] |
 | Hybrid (RRF) | **0.8877** | 0.7389 | 0.7008 | `retriever` | −0.0011 [−0.0223, +0.0202] *ns* |
 | + MiniLM rerank (MS MARCO) | 0.8272 | 0.6952 | 0.6665 | `rerank_model` | **−0.0436** [−0.0716, −0.0157] |
 | + `bge-reranker-base` | 0.8488 | 0.7220 | 0.6927 | `rerank_model` | +0.0268 [−0.0006, +0.0546] *ns* |
 
 Each row differs from the row above by **exactly one** knob, because a delta
-across two simultaneous changes cannot be attributed to either —
+across two simultaneous changes cannot be attributed to either:
 `config.assert_comparable` refuses to tabulate such a comparison. Deltas are
 paired-bootstrap over the same 300 questions; `ns` marks an interval containing
 zero.
@@ -40,14 +40,14 @@ zero.
 **Three findings, two of them negative:**
 
 1. **Dense beats BM25 by +5.6 nDCG@10.** Expected.
-2. **Hybrid RRF buys recall, not ordering.** recall@10 rises to 0.8877 — best of
-   any arm, +7.5 over BM25 — while nDCG@10 is indistinguishable from dense
+2. **Hybrid RRF buys recall, not ordering.** recall@10 rises to 0.8877, best of
+   any arm and +7.5 over BM25, while nDCG@10 is indistinguishable from dense
    alone. Fusion changes *which* documents are found, not the order they come
    back in. The two metrics disagreeing is the reason both are reported.
 3. **Cross-encoder reranking degrades a strong hybrid first stage here.** The MS
    MARCO MiniLM loses 4.4 nDCG points significantly; a BEIR-appropriate reranker
    recovers most of that but still loses recall@10 significantly against no
-   reranking. So this is not "the wrong reranker was picked" — it is that a
+   reranking. So this is not "the wrong reranker was picked". Rather, a
    cross-encoder trained on other data reorders a good `bge-base` ranking for
    the worse *on SciFact*.
 
@@ -58,14 +58,14 @@ zero.
 > sign of a retrieval component's effect depended on the domain, and only
 > measuring on the served corpus found that out.
 
-### Retrieval on the project's own corpus — 300 arXiv papers, 27,303 chunks
+### Retrieval on the project's own corpus: 300 arXiv papers, 27,303 chunks
 
 `make eval-retrieval CORPUS=arxiv-rag TIER=arxiv40`. Scored against span-level
 gold: the chunks that state each of the 40 questions' answers.
 
 | Arm | recall@10 | nDCG@10 | MRR | knob changed | paired Δ nDCG@10 (95% CI) |
 |---|---|---|---|---|---|
-| BM25 only (`pg_search`) | 0.6441 | 0.5027 | 0.5724 | — baseline | — |
+| BM25 only (`pg_search`) | 0.6441 | 0.5027 | 0.5724 | baseline | n/a |
 | Dense only (`bge-base`, HNSW) | 0.5404 | 0.4156 | 0.4938 | `retriever` | −0.0871 [−0.2270, +0.0488] *ns* |
 | Hybrid (RRF) | 0.6648 | 0.5017 | 0.5556 | `retriever` | **+0.0861** [+0.0206, +0.1511] |
 | + MiniLM rerank (MS MARCO) | 0.6864 | 0.5809 | 0.7001 | `rerank_model` | +0.0792 [−0.0053, +0.1687] *ns* |
@@ -87,7 +87,7 @@ shipped default.
 
 Heading detection is a font-geometry heuristic, so the only honest answer to
 "how often is it wrong?" is a number. Ground truth is `arxiv.org/html/<id>`,
-rendered from the authors' LaTeX — no labelling, no cost. `make measure-parser`.
+rendered from the authors' LaTeX, with no labelling and, no cost. `make measure-parser`.
 All 300 papers, 287 of which have a LaTeXML rendering to score against.
 
 | Metric | Mean | What it bounds |
@@ -97,7 +97,7 @@ All 300 papers, 287 of which have a LaTeXML rendering to score against.
 | Section precision | 0.814 | 81% of detected headings are real (median 0.857). |
 
 **These fail differently and must not be conflated.** A missed heading does not
-lose text — the body merges into the preceding section, so every character is
+lose text: the body merges into the preceding section, so every character is
 still chunked, embedded and citable; what degrades is how precisely a citation
 can name *which* section it came from. Uncovered text is the failure that would
 actually invalidate a retrieval number, and it sits at 1.9% (mostly title,
@@ -106,12 +106,12 @@ authors and affiliations, which precede the first heading by design).
 Recall varies widely by paper (interquartile range 0.19–0.40). The per-paper
 rows are in [`results/parser-fidelity.md`](results/parser-fidelity.md).
 Run-in `\paragraph{}`
-labels are counted but **not scored** — they render inline with their prose, so
+labels are counted but **not scored**. They render inline with their prose, so
 a line-based parser cannot see them, and on one paper they are 25 of 38 LaTeXML
 headings. Scoring against them reported 0.158 for that paper, which described
 the metric's definition rather than the parser's quality.
 
-### End-to-end — 40 arXiv questions, frozen before building
+### End-to-end: 40 arXiv questions, frozen before building
 
 The set is [`data/arxiv40.jsonl`](data/arxiv40.jsonl): 32 single-paper and 8
 two-paper questions over a seeded random sample of 40 papers. They were drafted
@@ -126,7 +126,7 @@ run exists on the tier.
 
 | Arm | correctness | groundedness | fabricated quotes | unsupported (of real quotes) | gold chunk cited | tokens/q |
 |---|---|---|---|---|---|---|
-| No-retrieval control | 0.067 | — | — | — | — | 502 |
+| No-retrieval control | 0.067 | n/a | n/a | n/a | n/a | 502 |
 | Single agent | 0.829 | 0.535 | 1.8% | 45.5% | 0.925 | 6,684 |
 | Four-role graph | **0.873** | **0.630** | **0.0%** | 37.0% | **0.975** | 20,466 |
 | Four-role graph, no retry | 0.873 | 0.614 | 3.3% | 36.6% | 0.975 | 18,175 |
@@ -138,7 +138,7 @@ Paired bootstrap, n=40:
 
 | Comparison | Δ correctness (95% CI) | Δ groundedness (95% CI) |
 |---|---|---|
-| control → single agent | **+0.763** [+0.638, +0.875] | — |
+| control → single agent | **+0.763** [+0.638, +0.875] | n/a |
 | single agent → four-role graph | +0.044 [−0.050, +0.148] *ns* | +0.076 [−0.019, +0.173] *ns* |
 | graph without retry → with retry | +0.000 *ns* | +0.013 [−0.003, +0.030] *ns* |
 
@@ -220,12 +220,12 @@ asserted here:
 
 **Researchers are context-isolated.** Each holds only its own sub-question's
 evidence. A single agent accumulates every chunk from every sub-question into
-one window and dilutes its own attention — the measurable argument for more than
+one window and dilutes its own attention. That is the measurable argument for more than
 one agent, and why a **single-agent arm ships alongside as the baseline**.
 Without that baseline, "why multi-agent?" is a question of taste; with it, it is
 a table.
 
-**The Verifier never sees the Synthesizer's reasoning** — only a claim and the
+**The Verifier never sees the Synthesizer's reasoning**, only a claim and the
 span it cites. A verifier sharing context with the writer rubber-stamps its own
 prior reasoning, which turns evidence verification from a check into decoration.
 
@@ -233,13 +233,13 @@ prior reasoning, which turns evidence verification from a check into decoration.
 `{claim, citations: [{chunk_id, verbatim_quote}]}` and the report is rendered
 from it. Two payoffs: no post-hoc decomposer whose error rate would leak into
 every hallucination number (and partly into the judge's κ); and fabrication
-detection becomes `str.find` against the cited chunk — zero cost, zero variance,
+detection becomes `str.find` against the cited chunk, with zero cost, zero variance and
 no model involved. That splits the metric into a deterministic half (fabricated
 quote, should be ~0) and a fuzzy half (the quote does not entail the claim),
 which is the only half needing a judge.
 
 The verify edge is **bounded at one retry**. Unbounded self-correction is how
-these graphs become unpredictable in cost and unmeasurable in latency — and
+these graphs become unpredictable in cost and unmeasurable in latency, and
 whether the retry rescues claims or merely burns tokens is itself an arm.
 
 ## What "citation-backed" means here
@@ -252,7 +252,7 @@ instead, so precision and context do not trade off.
 
 Claims whose quote cannot be found, or that the judge finds unsupported, are
 **rendered as explicitly unverified** rather than dropped. Dropping them would
-hide the exact failure this project exists to count — and would silently inflate
+hide the exact failure this project exists to count, and would silently inflate
 its own groundedness numbers.
 
 ## Stack
@@ -260,7 +260,7 @@ its own groundedness numbers.
 | | |
 |---|---|
 | Orchestration | LangGraph-style fixed DAG, tool calling, bounded verify edge |
-| Lexical | **real Okapi BM25** via ParadeDB `pg_search` 0.26 (Tantivy) — not `ts_rank` |
+| Lexical | **real Okapi BM25** via ParadeDB `pg_search` 0.26 (Tantivy), not `ts_rank` |
 | Dense | pgvector 0.8 HNSW, `bge-base-en-v1.5`, local, on MPS |
 | Fusion | Reciprocal Rank Fusion (rank-based, so scale-free) |
 | Generation | `claude-haiku-5-5`, effort `low`, structured outputs, content-addressed cache |
@@ -305,24 +305,6 @@ formula installs the plugin but the docker CLI only finds it when
 CI runs the retrieval tier on every push. It needs no credentials and costs
 nothing, which is what makes it a real quality gate rather than a lint job.
 
-## No fallbacks
-
-Every error raises. No `except: pass`, no degraded path, no defaults for absent
-config, no partial ingests. A silent fallback corrupts attribution: a reranker
-that quietly no-ops, or an ingest that drops the documents that failed to parse,
-inflates the numbers above.
-
-The rule needs one sharp edge to be workable, and it is in
-[`src/agentforge/errors.py`](src/agentforge/errors.py):
-
-- **A defect raises.** Schema-invalid model output, Postgres unreachable, a PDF
-  that will not parse, a `chunk_id` absent from the index, missing config, a
-  latency query against a cached run.
-- **A model-quality outcome is data.** A fabricated quote, or a quote that does
-  not entail its claim. These get a verdict row and ship flagged. Raising would
-  mean the tool cannot report its own primary finding; dropping them would hide
-  it.
-
 ## Honest limitations
 
 - **Reranking's sign depends on the domain.** It lost on SciFact with both models
@@ -338,7 +320,7 @@ The rule needs one sharp edge to be workable, and it is in
   `recall@10` on arms configured with `final_k=8`, structurally capping every arm
   at `recall@8`. The harness now refuses to score deeper than a run's `final_k`.
   The corrected numbers still show reranking losing, by slightly less.
-- **The fidelity scorer was wrong three times before the parser was** — see the
+- **The fidelity scorer was wrong three times before the parser was**. See the
   postscript in [docs/DESIGN.md](docs/DESIGN.md).
 - **Questions and judge labels are model-drafted.** Both were drafted by Claude
   and machine-checked (gold chunks by whole-paper search, quotes verbatim), not
@@ -362,6 +344,6 @@ The rule needs one sharp edge to be workable, and it is in
 
 ## Design decisions
 
-Fifteen decisions with their reasoning and rejected alternatives — plus a
+Fourteen decisions with their reasoning and rejected alternatives, plus a
 postscript recording every place the measurements contradicted the design:
 **[docs/DESIGN.md](docs/DESIGN.md)**.

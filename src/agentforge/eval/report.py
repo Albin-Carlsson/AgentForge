@@ -72,8 +72,8 @@ def ladder_markdown(steps: list[LadderStep], k: int, metric: str) -> str:
             f"{step.scores[f'nDCG@{k}']:.4f}",
             f"{step.scores['MRR']:.4f}",
             step.scores["n_queries"],
-            step.knob or "— (baseline)",
-            step.delta or "—",
+            step.knob or "baseline",
+            step.delta or "n/a",
         ]
         for step in steps
     ]
