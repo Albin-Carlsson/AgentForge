@@ -243,14 +243,14 @@ comes from.
 | M2 | arXiv ingestion, PyMuPDF, small-to-big | parser section-recall %; M1 arms on the real corpus |
 | M3 | single-agent baseline, structured claims, quote-match | fabricated-quote rate |
 | M4 | 40 frozen questions, judge, 100 labelled pairs, κ | groundedness + a validated instrument |
-| M5 | four-role LangGraph, bounded verify edge | graph vs single-agent |
+| M5 | four-role graph, bounded verify edge | graph vs single-agent |
 | M6 | FastAPI, Docker, Langfuse, README, demo | the deliverable |
 
 **M1 is deliberately the riskiest half of the stack** (`pg_search`, hybrid, RRF,
 config hashing) so it fails in week one rather than week five. SciFact abstracts
 are short, so chunking does not block it.
 
-**LangGraph is M5, not M1**. Building orchestration around a retrieval system
+**Orchestration is M5, not M1**. Building orchestration around a retrieval system
 whose quality cannot yet be measured is exactly how this becomes twelve shallow
 wrappers.
 
