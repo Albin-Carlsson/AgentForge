@@ -44,6 +44,10 @@ jobs:
           path: ./models
           key: models-${{ hashFiles('pyproject.toml') }}
 
+      # CPU-only PyTorch first: the default wheel pulls several GB of CUDA
+      # libraries this runner has no GPU for, and filled its disk on every run.
+      - run: pip install torch --index-url https://download.pytorch.org/whl/cpu
+
       - run: pip install -e ".[dev]"
 
       - run: python -m agentforge.cli init
