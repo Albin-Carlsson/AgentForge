@@ -206,9 +206,12 @@ def default_transport(api_key: str | None = None) -> Transport:
 
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 
-# A per-minute limit resets within a minute and is worth waiting for. A longer
-# retry-after means the daily quota is spent: stop, and resume from the cache.
-MAX_RATE_LIMIT_WAIT_S = 90.0
+# Groq's 429 body names the limit that was hit. A daily one (TPD / RPD) stops
+# the run, which resumes from the cache after the reset. Anything else is waited
+# out, up to this cap: a large request under the per-minute limit can be told to
+# wait well over a minute, so retry-after alone cannot tell the two apart.
+MAX_RATE_LIMIT_WAIT_S = 600.0
+_DAILY_LIMIT_MARKERS = (b"per day", b"(TPD)", b"(RPD)")
 MAX_RATE_LIMIT_RETRIES = 6
 # A dropped connection or DNS blip is resent unchanged, a bounded number of
 # times. The same request either succeeds or raises; nothing is degraded.
@@ -306,10 +309,10 @@ def groq_transport(api_key: str | None = None, sleep=time.sleep, post=None) -> T
                 break
             lowered = {k.lower(): v for k, v in response_headers.items()}
             wait = float(lowered.get("retry-after", "inf"))
-            if wait > MAX_RATE_LIMIT_WAIT_S:
+            if any(marker in raw for marker in _DAILY_LIMIT_MARKERS) or wait > MAX_RATE_LIMIT_WAIT_S:
                 raise QuotaExhausted(
-                    f"{model}: rate limited with retry-after={wait:.0f}s, which is the "
-                    "daily quota rather than the per-minute one. Re-run after the reset; "
+                    f"{model}: daily rate limit reached (retry-after={wait:.0f}s): "
+                    f"{raw[:200].decode(errors='replace')}. Re-run after the reset; "
                     "completed calls replay from the cache at no cost."
                 )
             sleep(wait + 0.5)

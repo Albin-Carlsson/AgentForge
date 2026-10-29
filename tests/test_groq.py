@@ -68,10 +68,19 @@ def test_a_per_minute_limit_is_waited_out_then_retried():
     assert result["parsed"] == {"verdict": "entailed"}
 
 
-def test_a_daily_limit_stops_the_run_instead_of_waiting_hours():
-    post = ScriptedPost((429, {"retry-after": "5400"}, b""))
-    with pytest.raises(QuotaExhausted, match="daily quota"):
+def test_a_daily_limit_stops_the_run_even_with_a_short_retry_after():
+    body = b'{"error":{"message":"Rate limit reached on tokens per day (TPD): Limit 200000"}}'
+    post = ScriptedPost((429, {"retry-after": "104"}, body))
+    with pytest.raises(QuotaExhausted, match="daily rate limit"):
         call(groq_transport("k", sleep=lambda s: None, post=post))
+
+
+def test_a_long_per_minute_wait_is_waited_out_not_mistaken_for_daily():
+    waits: list[float] = []
+    body = b'{"error":{"message":"Rate limit reached on tokens per minute (TPM)"}}'
+    post = ScriptedPost((429, {"retry-after": "104"}, body), ok())
+    assert call(groq_transport("k", sleep=waits.append, post=post))["parsed"]
+    assert waits == [104.5]
 
 
 def test_truncated_output_is_refused_not_parsed():
