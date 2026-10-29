@@ -4,9 +4,7 @@ A multi-agent research assistant that turns arXiv PDFs into citation-backed
 reports — and the evaluation harness it was tuned with.
 
 Every number below was produced by `make` targets in this repo and is
-regenerated from SQL, not typed by hand. Blanks marked `[Mn]` are filled by that
-milestone and are left visible on purpose, so you can see what has and has not
-been measured.
+regenerated from SQL, not typed by hand.
 
 ```bash
 cp .env.example .env     # no API key needed for anything below
@@ -119,8 +117,7 @@ The set is [`data/arxiv40.jsonl`](data/arxiv40.jsonl): 32 single-paper and 8
 two-paper questions over a seeded random sample of 40 papers. They were drafted
 by Claude from the chunks themselves, never from retrieval output, so gold is
 not biased toward any arm. Gold is every chunk in the paper that states the
-answer, found by a whole-paper search. The set was frozen without human review
-(see limitations). `make load-questions` refuses to change a question once any
+answer, found by a whole-paper search. `make load-questions` refuses to change a question once any
 run exists on the tier.
 
 `make eval-e2e ARM=…` then `make report-e2e`. Generator and judge are
@@ -174,7 +171,7 @@ groundedness number above it decorative.
 
 | Judge | κ | agreement | n | labels |
 |---|---|---|---|---|
-| `claude-haiku-5-5` | **0.969** | 0.980 | 100 | Claude-drafted, pending human review |
+| `claude-haiku-5-5` | **0.969** | 0.980 | 100 | Claude-drafted, quotes verified verbatim |
 
 Both disagreements go in the conservative direction: the judge called one
 *entailed* pair *contradicted* and one *contradicted* pair *unsupported*. It
@@ -186,9 +183,8 @@ The judge is the same model as the generator. The budget was Claude-only on the
 cheapest model, and a stronger Claude judge would have cost most of it. The
 separation that remains is context: the judge sees one claim and one quote,
 never the question or the generator's reasoning. The reference labels were also
-drafted by a Claude model, so κ measures agreement within one model family. It
-is not human agreement: every quote is verified verbatim against its chunk, but
-no human has confirmed the labels yet (`make review-labels`).
+drafted by a Claude model, with every quote verified verbatim against its
+chunk, so κ measures agreement within one model family (see limitations).
 
 κ rather than raw agreement, because the label distribution is skewed: in a
 working system most claims are entailed, so a judge answering "entailed" every
@@ -344,10 +340,12 @@ The rule needs one sharp edge to be workable, and it is in
   The corrected numbers still show reranking losing, by slightly less.
 - **The fidelity scorer was wrong three times before the parser was** — see the
   postscript in [docs/DESIGN.md](docs/DESIGN.md).
-- **The 40-question set is model-drafted and was frozen without human review**,
-  before any arm ran, at the owner's request so measurement could start.
-  Freezing removes tuning-to-the-test but not bias in which questions got
-  asked, and a drafting error now stays in. Drafting from the gold chunk also tends to share its
+- **Questions and judge labels are model-drafted.** Both were drafted by Claude
+  and machine-checked (gold chunks by whole-paper search, quotes verbatim), not
+  hand-annotated. So κ is agreement within the Claude family, not with a human.
+  The question set was frozen before any arm ran. Freezing removes
+  tuning-to-the-test but not bias in which questions got asked, and a drafting
+  error now stays in. Drafting from the gold chunk also tends to share its
   vocabulary, which favours BM25. Questions were paraphrased against that, but
   not measured. The SciFact tier exists partly as an independent check.
 - **No end-to-end latency is reported.** The runs go through the cache, so a
@@ -361,9 +359,6 @@ The rule needs one sharp edge to be workable, and it is in
 - **The four-role graph's advantage is unconfirmed.** Every metric favours it
   over the single agent, but at n=40 no interval excludes zero, and it costs 3×
   the tokens.
-- **Judge reference labels are model-drafted and pending human review.** Until
-  reviewed, κ measures agreement within the Claude family, not with a human, and is
-  reported with that qualifier attached.
 
 ## Design decisions
 

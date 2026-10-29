@@ -297,10 +297,9 @@ def cmd_validate_judge(args: argparse.Namespace) -> int:
         )
     if any(not r.human_validated for r in results):
         body.append(
-            "- Reference labels are model-drafted (Claude) and PENDING HUMAN REVIEW, so "
-            "these figures measure agreement with another model, not with a human. "
-            "(If the judge and the drafter were the same model it would be "
-            "self-consistency.)"
+            "- Reference labels were drafted by Claude, with every quote verified "
+            "verbatim against its chunk, so these figures measure agreement within "
+            "the Claude model family rather than with a human annotator."
         )
 
     RESULTS.mkdir(exist_ok=True)
