@@ -77,7 +77,8 @@ def test_posting_a_question_returns_a_job_id_immediately(client):
     response = client.post("/research", json={"question": "Does hybrid help?"})
     assert response.status_code == 202
     assert response.json()["job_id"]
-    assert response.json()["status"] in ("queued", "running", "done")
+    # Queued, not done: the run happens after the response, never inside it.
+    assert response.json()["status"] == "queued"
 
 
 def test_polling_a_finished_job_returns_the_cited_report(client):

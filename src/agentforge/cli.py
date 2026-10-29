@@ -191,11 +191,12 @@ def cmd_report_e2e(args: argparse.Namespace) -> int:
         delta = e2e.compare_groundedness(runs[base], runs[treat])
         lines.append(f"- {labels[base]} -> {labels[treat]}: {delta.describe('groundedness')}")
     retry = e2e.retry_stats(runs["graph"])
+    without = e2e.fabricated_quotes(runs["graph-noretry"])
+    with_retry = e2e.fabricated_quotes(runs["graph"])
     lines += [
         "",
-        (f"The bounded retry ran on {retry['questions_retried']} of {scores['graph'].n} questions. "
-        f"Of the {retry['retry_citations']} citations it produced, {retry['retry_found']} quotes "
-        f"were found verbatim and {retry['retry_entailed']} were judged entailed."),
+        (f"The bounded retry fired on {retry['questions_retried']} of {scores['graph'].n} "
+         f"questions. Fabricated quotes: {without} without it, {with_retry} with it."),
     ]
     lines += ["", "Runs: " + ", ".join(f"`{r}`" for r in runs.values())]
     body = "\n".join(lines) + "\n"

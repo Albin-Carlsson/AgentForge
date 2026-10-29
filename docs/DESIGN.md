@@ -373,3 +373,17 @@ exactly was scored as fabricating. Quote matching is now hyphen-insensitive.
 And the test suite shared the real database while its cleanup deleted
 `llm_cache`, so every test run silently discarded the cache that interrupted
 runs resume from. Tests now run against a derived `<db>_test` database.
+
+### Multi-agent did not clear the bar; the retry earned its place differently (§2)
+
+§2 argued the four-role graph would beat a single agent through context
+isolation, and shipped the single agent as the baseline so the claim would be a
+table. The table, at n=40 on Haiku 5.5: correctness +0.044 [−0.050, +0.148] and
+groundedness +0.076 [−0.019, +0.173], both not significant, at 3× the tokens.
+The direction is consistent across every metric, so this is "unconfirmed", not
+"refuted". It is still not the result the design predicted.
+
+The bounded retry was framed as an open question: does it rescue claims or
+burn tokens? It took fabricated quotes from 14 to 0 for +13% tokens, with
+correctness identical on all 40 questions. It is worth keeping for what it
+guarantees about citations, not for what it adds to answers.

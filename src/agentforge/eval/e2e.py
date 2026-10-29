@@ -266,15 +266,24 @@ def compare_groundedness(baseline_run: str, treatment_run: str) -> PairedDelta:
 
 
 def retry_stats(run_id: str) -> dict[str, int]:
-    """What the one bounded retry produced: verify_pass marks its citations."""
+    """How often the one bounded retry fired.
+
+    verify_pass=1 marks every citation re-verified after a retry, kept and
+    replaced alike, so counting those rows would overstate what the retry
+    produced. Its effect is measured against the no-retry arm instead.
+    """
     with pool().connection() as conn:
         row = conn.execute(
-            """SELECT count(DISTINCT query_id) FILTER (WHERE verify_pass = 1) AS questions_retried,
-                      count(*) FILTER (WHERE verify_pass = 1) AS retry_citations,
-                      count(*) FILTER (WHERE verify_pass = 1 AND quote_found) AS retry_found,
-                      count(*) FILTER (WHERE verify_pass = 1 AND entailed = 'entailed')
-                          AS retry_entailed
-               FROM claims WHERE run_id = %s""",
+            "SELECT count(DISTINCT query_id) FILTER (WHERE verify_pass = 1) AS questions_retried "
+            "FROM claims WHERE run_id = %s",
             (run_id,),
         ).fetchone()
     return dict(row)
+
+
+def fabricated_quotes(run_id: str) -> int:
+    """Citations whose quote is not verbatim in a retrieved chunk."""
+    with pool().connection() as conn:
+        return conn.execute(
+            "SELECT count(*) AS n FROM claims WHERE run_id = %s AND NOT quote_found", (run_id,)
+        ).fetchone()["n"]

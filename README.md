@@ -119,15 +119,51 @@ The set is [`data/arxiv40.jsonl`](data/arxiv40.jsonl): 32 single-paper and 8
 two-paper questions over a seeded random sample of 40 papers. They were drafted
 by Claude from the chunks themselves, never from retrieval output, so gold is
 not biased toward any arm. Gold is every chunk in the paper that states the
-answer, found by a whole-paper search. Each question is then reviewed and edited
-by hand. `make load-questions` refuses to change a question once any run exists
-on the tier.
+answer, found by a whole-paper search. The set was frozen without human review
+(see limitations). `make load-questions` refuses to change a question once any
+run exists on the tier.
 
-`[M4]` · requires an API key. Arms: no-retrieval control, single agent, four-role
-graph. The control is not filler — it quantifies how much the model already
-knows cold, which is the only way to attribute any gain to retrieval rather than
-to pretraining. The corpus is published **2026-09-16 → 2026-10-23**, after the
-generator's training cutoff, so that attribution is clean by construction.
+`make eval-e2e ARM=…` then `make report-e2e`. Generator and judge are
+`claude-haiku-5-5` at effort `low`, retrieval is the shipped hybrid +
+`bge-reranker-base`, and the whole table cost **$0.26 at list price**.
+
+| Arm | correctness | groundedness | fabricated quotes | unsupported (of real quotes) | gold chunk cited | tokens/q |
+|---|---|---|---|---|---|---|
+| No-retrieval control | 0.067 | — | — | — | — | 502 |
+| Single agent | 0.829 | 0.535 | 1.8% | 45.5% | 0.925 | 6,684 |
+| Four-role graph | **0.873** | **0.630** | **0.0%** | 37.0% | **0.975** | 20,466 |
+| Four-role graph, no retry | 0.873 | 0.614 | 3.3% | 36.6% | 0.975 | 18,175 |
+
+Correctness is deterministic key-fact recall against each question's
+`answer_keys`, with no judge involved. Groundedness is the share of citations
+whose quote is verbatim in the cited chunk *and* judged to entail its claim.
+Paired bootstrap, n=40:
+
+| Comparison | Δ correctness (95% CI) | Δ groundedness (95% CI) |
+|---|---|---|
+| control → single agent | **+0.763** [+0.638, +0.875] | — |
+| single agent → four-role graph | +0.044 [−0.050, +0.148] *ns* | +0.076 [−0.019, +0.173] *ns* |
+| graph without retry → with retry | +0.000 *ns* | +0.013 [−0.003, +0.030] *ns* |
+
+**Three findings, two of them negative:**
+
+1. **Retrieval is the whole gain.** Without it the model answers 6.7% of key
+   facts. Every credited control answer begins "I don't know" and earns its keys
+   from generic phrasing, so this is a scoring floor, not contamination.
+2. **The four-role graph is not measurably better than one agent at n=40,** and
+   it costs 3× the tokens. Every number points its way: correctness +4.4,
+   groundedness +7.6, fabricated quotes 1.8% → 0, gold chunk cited 0.925 →
+   0.975. But neither headline interval excludes zero. "Multi-agent improves
+   grounding" is a hypothesis this set cannot confirm; it needs more questions.
+3. **The bounded retry fixes fabrication, not answers.** It fired on 8 of 40
+   questions and took fabricated quotes from 14 to 0, at +13% tokens.
+   Correctness did not move on any question. It also shows the deterministic
+   half of the metric doing its job: a non-verbatim quote is caught by `str.find`, sent back once,
+   and repaired.
+
+The weak spot is the fuzzy half. Even in the best arm, 37% of real quotes do not
+entail their claim. Real quotes attached to over-reaching claims are the
+dominant failure, and they are what the judge exists to catch.
 
 ### The judge, validated
 
@@ -136,7 +172,15 @@ generator's training cutoff, so that attribution is clean by construction.
 cheapest one clearing κ ≥ 0.70. An unvalidated LLM judge makes every
 groundedness number above it decorative.
 
-`[M4]` · the `claude-haiku-5-5` judge's κ, filled from `results/judge-validation.md`.
+| Judge | κ | agreement | n | labels |
+|---|---|---|---|---|
+| `claude-haiku-5-5` | **0.969** | 0.980 | 100 | Claude-drafted, pending human review |
+
+Both disagreements go in the conservative direction: the judge called one
+*entailed* pair *contradicted* and one *contradicted* pair *unsupported*. It
+never accepted an unsupported claim, so it does not inflate groundedness. The
+labels deliberately include the hard case the judge prompt warns about: a quote
+on the right topic that does not establish the claim.
 
 The judge is the same model as the generator. The budget was Claude-only on the
 cheapest model, and a stronger Claude judge would have cost most of it. The
@@ -310,6 +354,13 @@ The rule needs one sharp edge to be workable, and it is in
   replayed call's wall-clock is SQL, not model time. Measuring latency needs a
   `cache_bypass` run, which re-bills every call. Retrieval-stage timings are
   unaffected and are in the run rows.
+- **The judge errs strict, so groundedness is conservative.** It has called a
+  correct claim about the Vietnamese dense-vs-hybrid result *contradicted*, once
+  in validation and once in a live report. Claims quoting bare table numbers
+  tend to come back *unsupported*. Both are observations, not a measured rate.
+- **The four-role graph's advantage is unconfirmed.** Every metric favours it
+  over the single agent, but at n=40 no interval excludes zero, and it costs 3×
+  the tokens.
 - **Judge reference labels are model-drafted and pending human review.** Until
   reviewed, κ measures agreement within the Claude family, not with a human, and is
   reported with that qualifier attached.

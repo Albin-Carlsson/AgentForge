@@ -28,7 +28,7 @@ from collections.abc import Callable
 from contextlib import asynccontextmanager
 from typing import Any, Literal
 
-from fastapi import FastAPI, HTTPException
+from fastapi import BackgroundTasks, FastAPI, HTTPException
 from pydantic import BaseModel, Field, field_validator
 
 from agentforge.db.conn import apply_schema, pool, server_info
@@ -129,7 +129,9 @@ def build_app(
         return {"status": "ok", "engine": server_info()}
 
     @app.post("/research", status_code=202, response_model=JobCreated)
-    async def create_research(request: ResearchRequest) -> JobCreated:
+    async def create_research(
+        request: ResearchRequest, background: BackgroundTasks
+    ) -> JobCreated:
         job_id = uuid.uuid4().hex[:16]
         with pool().connection() as conn:
             conn.execute(
@@ -137,12 +139,10 @@ def build_app(
                 "VALUES (%s,%s,%s,'queued')",
                 (job_id, request.question, request.arm),
             )
-        await _run_job(job_id, request.question, request.arm)
-        with pool().connection() as conn:
-            row = conn.execute(
-                "SELECT status FROM research_jobs WHERE job_id = %s", (job_id,)
-            ).fetchone()
-        return JobCreated(job_id=job_id, status=row["status"])
+        # Runs after the 202 is sent. Awaiting it here held the request open for
+        # the whole multi-agent run, which is what the job table exists to avoid.
+        background.add_task(_run_job, job_id, request.question, request.arm)
+        return JobCreated(job_id=job_id, status="queued")
 
     @app.get("/research/{job_id}")
     def get_research(job_id: str) -> dict[str, Any]:
