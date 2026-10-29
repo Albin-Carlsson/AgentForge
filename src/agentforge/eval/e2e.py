@@ -238,3 +238,43 @@ def compare_correctness(baseline_run: str, treatment_run: str) -> PairedDelta:
     return paired_bootstrap(
         per_question_correctness(baseline_run), per_question_correctness(treatment_run)
     )
+
+
+def per_question_groundedness(run_id: str) -> dict[str, float]:
+    """Verified citations over all citations, per question that has any."""
+    per_question_correctness(run_id)  # refuses unfinished runs
+    with pool().connection() as conn:
+        rows = conn.execute(
+            """SELECT query_id, count(*) AS n,
+                      count(*) FILTER (WHERE quote_found AND entailed = 'entailed') AS ok
+               FROM claims WHERE run_id = %s GROUP BY query_id""",
+            (run_id,),
+        ).fetchall()
+    return {r["query_id"]: r["ok"] / r["n"] for r in rows}
+
+
+def compare_groundedness(baseline_run: str, treatment_run: str) -> PairedDelta:
+    """Paired over the questions where both arms cited something.
+
+    A question with no citations has no groundedness; pairing only on the
+    shared set keeps the comparison paired rather than mixing denominators.
+    """
+    base = per_question_groundedness(baseline_run)
+    treat = per_question_groundedness(treatment_run)
+    shared = base.keys() & treat.keys()
+    return paired_bootstrap({q: base[q] for q in shared}, {q: treat[q] for q in shared})
+
+
+def retry_stats(run_id: str) -> dict[str, int]:
+    """What the one bounded retry produced: verify_pass marks its citations."""
+    with pool().connection() as conn:
+        row = conn.execute(
+            """SELECT count(DISTINCT query_id) FILTER (WHERE verify_pass = 1) AS questions_retried,
+                      count(*) FILTER (WHERE verify_pass = 1) AS retry_citations,
+                      count(*) FILTER (WHERE verify_pass = 1 AND quote_found) AS retry_found,
+                      count(*) FILTER (WHERE verify_pass = 1 AND entailed = 'entailed')
+                          AS retry_entailed
+               FROM claims WHERE run_id = %s""",
+            (run_id,),
+        ).fetchone()
+    return dict(row)

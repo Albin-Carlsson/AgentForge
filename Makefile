@@ -61,7 +61,7 @@ eval-fast: ## CI gate: the ladder on a 300-doc slice, no API key, no cost
 	$(PY) -m agentforge.cli eval-retrieval
 
 # ------------------------------------------------------- requires an API key
-eval-e2e: ## one end-to-end arm over the arXiv questions (ARM=control|single|graph); resumable
+eval-e2e: ## one end-to-end arm over the arXiv questions (ARM=control|single|graph|graph-noretry); resumable
 	$(PY) -m agentforge.cli eval-e2e --arm $(ARM) $(if $(GENERATOR),--generator $(GENERATOR))
 
 report-e2e: ## the end-to-end table from the latest finished run of each arm

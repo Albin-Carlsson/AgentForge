@@ -103,10 +103,12 @@ def cmd_load_questions(args: argparse.Namespace) -> int:
 
 # The three end-to-end arms. Each differs from the next in generation.graph
 # alone, so every delta between adjacent arms is attributable.
-E2E_ARMS = {
-    "control": "none",
-    "single": "single_agent",
-    "graph": "four_role",
+E2E_ARMS: dict[str, dict[str, object]] = {
+    "control": {"graph": "none"},
+    "single": {"graph": "single_agent"},
+    "graph": {"graph": "four_role"},
+    # One knob from "graph": is the bounded retry worth its tokens?
+    "graph-noretry": {"graph": "four_role", "max_verify_retries": 0},
 }
 
 
@@ -114,7 +116,7 @@ def _e2e_config(arm: str, generator: str | None = None) -> RunConfig:
     from agentforge.config import GenerationConfig
     from agentforge.ingest import papers
 
-    generation = {"graph": E2E_ARMS[arm]}
+    generation = dict(E2E_ARMS[arm])
     if generator is not None:
         generation["model"] = generator
     return RunConfig(
@@ -172,7 +174,7 @@ def cmd_report_e2e(args: argparse.Namespace) -> int:
         "|---|---|---|---|---|---|---|---|---|---|",
     ]
     labels = {"control": "No-retrieval control", "single": "Single agent",
-              "graph": "Four-role graph"}
+              "graph": "Four-role graph", "graph-noretry": "Four-role graph, no retry"}
     for arm, sc in scores.items():
         lines.append(
             f"| {labels[arm]} | **{sc.correctness:.3f}** | {sc.citations} | {pct(sc.groundedness)} | "
@@ -181,9 +183,20 @@ def cmd_report_e2e(args: argparse.Namespace) -> int:
             f"{sc.tokens_per_question:,.0f} | ${sc.list_cost_usd:.4f} |"
         )
     lines += ["", "Paired bootstrap on correctness (10,000 resamples, 95% CI):", ""]
-    for base, treat in (("control", "single"), ("single", "graph"), ("control", "graph")):
+    for base, treat in (("control", "single"), ("single", "graph"), ("graph-noretry", "graph")):
         delta = e2e.compare_correctness(runs[base], runs[treat])
         lines.append(f"- {labels[base]} -> {labels[treat]}: {delta.describe('correctness')}")
+    lines += ["", "Paired bootstrap on per-question groundedness (questions with citations in both):", ""]
+    for base, treat in (("single", "graph"), ("graph-noretry", "graph")):
+        delta = e2e.compare_groundedness(runs[base], runs[treat])
+        lines.append(f"- {labels[base]} -> {labels[treat]}: {delta.describe('groundedness')}")
+    retry = e2e.retry_stats(runs["graph"])
+    lines += [
+        "",
+        (f"The bounded retry ran on {retry['questions_retried']} of {scores['graph'].n} questions. "
+        f"Of the {retry['retry_citations']} citations it produced, {retry['retry_found']} quotes "
+        f"were found verbatim and {retry['retry_entailed']} were judged entailed."),
+    ]
     lines += ["", "Runs: " + ", ".join(f"`{r}`" for r in runs.values())]
     body = "\n".join(lines) + "\n"
     RESULTS.mkdir(exist_ok=True)
