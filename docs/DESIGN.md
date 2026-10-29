@@ -341,16 +341,14 @@ nDCG@10 [+0.103, +0.261], so it ships on. The SciFact result was not wrong. It
 answered a question about a different corpus, which is the argument for the
 served corpus having its own tier.
 
-### Models: Groq, not Anthropic (§11)
+### Models: Claude Haiku 5.5 for generation and judging (§11)
 
-The only key available was a Groq free tier, so generation runs on
-`openai/gpt-oss-120b` and judging on `openai/gpt-oss-20b`. That keeps the judge
-a different model from the generator, and gives it a separate daily quota. The
-quota (200K tokens/day per model) is smaller than one pass of the four-role
-arm, which made the content-addressed cache load-bearing: a run stopped by the
-daily quota resumes the next day by replaying completed calls for free. The
-contamination argument still holds empirically. The no-retrieval control
-scores 0.021 correctness on the post-cutoff corpus.
+Generation and judging both run on `claude-haiku-5-5` at low effort, the
+cheapest current Claude model, to fit a small budget. That gives up §5's
+judge-is-a-different-model separation. What remains is context separation: the
+judge sees one claim and one quote, never the question or the generator's
+reasoning. A stronger judge (Sonnet) would restore model separation at roughly
+the whole budget.
 
 ### No Synthesizer model, no web sources (§2, §3)
 
@@ -373,5 +371,5 @@ deltas are unaffected.
 genuine compound split across lines. A model quoting "English-to-Vietnamese"
 exactly was scored as fabricating. Quote matching is now hyphen-insensitive.
 And the test suite shared the real database while its cleanup deleted
-`llm_cache`, so every test run silently discarded the cache a multi-day run
-resumes from. Tests now run against a derived `<db>_test` database.
+`llm_cache`, so every test run silently discarded the cache that interrupted
+runs resume from. Tests now run against a derived `<db>_test` database.

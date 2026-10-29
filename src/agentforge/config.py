@@ -39,30 +39,14 @@ EMBED_DIMS: dict[str, int] = {
 }
 
 # Measured token counts are priced at list. USD per 1M tokens, (input, output).
-# Groq rates from console.groq.com/docs/models, read 2026-10-28.
 MODEL_PRICES: dict[str, tuple[float, float]] = {
     "claude-haiku-4-5": (1.00, 5.00),
     "claude-sonnet-5": (2.00, 10.00),
     "claude-opus-5": (5.00, 25.00),
     # Prompts up to 100K tokens; this project's never exceed ~4K.
     "claude-haiku-5-5": (0.10, 0.50),
-    "openai/gpt-oss-20b": (0.075, 0.30),
-    "openai/gpt-oss-120b": (0.15, 0.60),
-    "qwen/qwen3.8-27b": (0.80, 4.00),
 }
 
-# Which API serves each model. Explicit rather than inferred from the id's
-# shape, so a typo cannot route a call to the wrong provider.
-MODEL_PROVIDERS: dict[str, str] = {
-    "claude-haiku-4-5": "anthropic",
-    "claude-sonnet-5": "anthropic",
-    "claude-opus-5": "anthropic",
-    "claude-haiku-5-5": "anthropic",
-    "openai/gpt-oss-20b": "groq",
-    "openai/gpt-oss-120b": "groq",
-    "qwen/qwen3.8-27b": "groq",
-}
-assert MODEL_PROVIDERS.keys() == MODEL_PRICES.keys()
 
 
 
@@ -121,17 +105,12 @@ class GenerationConfig(_Frozen):
     """The agent graph and the model driving it."""
 
     graph: Graph = "four_role"
-    # The only key this project runs on is a Groq free tier, so the shipped
-    # generator is the strongest production Groq model. Its 200K tokens/day
-    # quota is why runs are resumable through the cache.
-    model: str = "openai/gpt-oss-120b"
-    # Output plus reasoning. Kept tight because max_tokens counts against the
-    # free tier's 8K tokens/minute.
+    # The cheapest current Claude model.
+    model: str = "claude-haiku-5-5"
     max_tokens: int = 3072
-    # gpt-oss reasons before answering; reasoning tokens are billed and count
-    # against the rate limit. "low" is the cheapest setting. It reaches the
-    # transport as the `thinking` config, so it is in every cache key.
-    reasoning_effort: str | None = "low"
+    # Claude's output_config.effort. "low" is the cheapest; it is part of every
+    # cache key and run hash.
+    effort: str | None = "low"
     prompt_version: str = "v1"
     n_subquestions: int = 4              # Planner fan-out width
     max_verify_retries: int = 1          # bounded: one retry, then the claim ships flagged
@@ -151,11 +130,13 @@ class GenerationConfig(_Frozen):
 class JudgeConfig(_Frozen):
     """The measuring instrument. Frozen once validated, and versioned."""
 
-    # A different model from the generator, both so the judge is not grading
-    # its own family's output and so the two draw on separate daily quotas.
-    # Chosen by `validate-judge`; see results/judge-validation.md.
-    model: str = "openai/gpt-oss-20b"
-    reasoning_effort: str | None = "low"
+    # The same model as the generator: the owner set a Claude-only, cheapest-
+    # model budget, and a stronger Claude judge would cost most of it. The
+    # separation that remains is context: the judge sees one claim and one
+    # quote, never the question or the generator's reasoning. Validated by
+    # `validate-judge`; see results/judge-validation.md.
+    model: str = "claude-haiku-5-5"
+    effort: str | None = "low"
     prompt_version: str = "v1"
     min_kappa: float = 0.70              # below this the judge is not a usable instrument
 

@@ -215,7 +215,7 @@ def test_anthropic_effort_goes_in_output_config_not_thinking(monkeypatch):
 
     import anthropic
 
-    from agentforge.llm import _thinking_for, default_transport
+    from agentforge.llm import _effort, default_transport
 
     sent: dict = {}
 
@@ -229,7 +229,7 @@ def test_anthropic_effort_goes_in_output_config_not_thinking(monkeypatch):
             )
 
     monkeypatch.setattr(anthropic, "Anthropic", lambda api_key: types.SimpleNamespace(messages=Messages()))
-    thinking = _thinking_for("claude-haiku-5-5", "low")
+    thinking = _effort("low")
     result = default_transport("k")(
         model="claude-haiku-5-5", system="s", messages=[{"role": "user", "content": "q"}],
         max_tokens=64, schema=SCHEMA, thinking=thinking,
@@ -237,4 +237,3 @@ def test_anthropic_effort_goes_in_output_config_not_thinking(monkeypatch):
     assert sent["output_config"] == {"format": {"type": "json_schema", "schema": SCHEMA}, "effort": "low"}
     assert "thinking" not in sent
     assert result["parsed"] == {"ok": True}
-    assert _thinking_for("openai/gpt-oss-20b", "low") == {"reasoning_effort": "low"}

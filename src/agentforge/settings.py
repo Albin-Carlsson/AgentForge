@@ -32,10 +32,6 @@ class Settings(BaseSettings):
     # module blocking the key-free retrieval tier.
     anthropic_api_key: str | None = Field(default=None, alias="ANTHROPIC_API_KEY")
 
-    # Groq serves the open-weight models (see config.MODEL_PROVIDERS). Optional
-    # for the same reason: only a call to a Groq-served model needs it.
-    groq_api_key: str | None = Field(default=None, alias="GROQ_API_KEY")
-
     langfuse_public_key: str | None = Field(default=None, alias="LANGFUSE_PUBLIC_KEY")
     langfuse_secret_key: str | None = Field(default=None, alias="LANGFUSE_SECRET_KEY")
     langfuse_host: str = Field(

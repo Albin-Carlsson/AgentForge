@@ -12,9 +12,9 @@ import json
 
 import pytest
 
-from agentforge.config import GenerationConfig, IngestConfig, RunConfig
+from agentforge.config import MODEL_PRICES, GenerationConfig, IngestConfig, RunConfig
 from agentforge.db.conn import pool
-from agentforge.errors import MeasurementError, QuotaExhausted
+from agentforge.errors import MeasurementError, SchemaViolation
 from agentforge.eval import e2e
 from agentforge.eval.answer_keys import key_found, key_recall
 
@@ -52,7 +52,7 @@ class Scripted:
 
     def __call__(self, *, model, system, messages, max_tokens, schema, thinking):
         if not self.answers:
-            raise QuotaExhausted("scripted quota")
+            raise SchemaViolation("scripted API failure part-way through the run")
         return {"parsed": {"answer": self.answers.pop(0)}, "input_tokens": 100, "output_tokens": 50}
 
 
@@ -67,7 +67,8 @@ def test_control_arm_stores_answers_and_scores_correctness(tier):
     scores = e2e.score_e2e_run(handle.run_id)
     assert scores.correctness == 1.0
     assert scores.citations == 0 and scores.groundedness is None
-    assert scores.list_cost_usd == pytest.approx(2 * (100 * 0.15 + 50 * 0.60) / 1e6)
+    per_in, per_out = MODEL_PRICES[control_config().generation.model]
+    assert scores.list_cost_usd == pytest.approx(2 * (100 * per_in + 50 * per_out) / 1e6)
 
 
 def test_a_replayed_run_reports_the_same_list_cost(tier):
@@ -80,8 +81,8 @@ def test_a_replayed_run_reports_the_same_list_cost(tier):
     )
 
 
-def test_a_run_stopped_by_quota_is_unscorable(tier):
-    with pytest.raises(QuotaExhausted):
+def test_a_run_stopped_part_way_is_unscorable(tier):
+    with pytest.raises(SchemaViolation):
         e2e.execute_e2e_run(control_config(), tier, "control", Scripted(["only one answer"]))
     with pool().connection() as conn:
         run_id = conn.execute("SELECT run_id FROM runs WHERE tier = %s", (tier,)).fetchone()["run_id"]

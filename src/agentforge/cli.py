@@ -160,8 +160,8 @@ def cmd_report_e2e(args: argparse.Namespace) -> int:
     lines = [
         "# End-to-end — 40 arXiv questions",
         "",
-        (f"Generator `{config.generation.model}` (reasoning_effort="
-        f"{config.generation.reasoning_effort}), judge `{config.judge.model}`, "
+        (f"Generator `{config.generation.model}` (effort="
+        f"{config.generation.effort}), judge `{config.judge.model}`, "
         f"retrieval: {config.retrieval.retriever}, final_k={config.retrieval.final_k}."),
         "Correctness is deterministic key-fact recall against each question's",
         "`answer_keys`; groundedness is verified citations over all citations.",
@@ -547,7 +547,7 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("validate-judge", help="score candidate judges, report kappa")
     p.add_argument(
         "--models", nargs="+",
-        default=["openai/gpt-oss-20b", "openai/gpt-oss-120b"],
+        default=["claude-haiku-5-5"],
     )
     p.add_argument("--min-kappa", dest="min_kappa", type=float, default=0.70)
     p.set_defaults(func=cmd_validate_judge)

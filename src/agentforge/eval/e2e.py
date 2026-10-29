@@ -4,9 +4,8 @@ Every per-question output is stored -- the answer, its token accounting, and one
 row per citation verdict -- and every metric is computed from those rows
 afterwards, so a scoring change never needs a re-run.
 
-**Resumable by construction.** The free-tier daily quota is smaller than one
-full pass of the four-role arm. When it runs out the run stops with
-`QuotaExhausted` and is left unfinished, and scoring refuses unfinished runs.
+**Resumable by construction.** A run that stops part-way (an API error, an
+interruption) is left unfinished, and scoring refuses unfinished runs.
 Re-running the same config replays every completed call from the cache at no
 cost and carries on. No question is ever skipped to make a run complete.
 
@@ -15,10 +14,10 @@ free, so "what this run billed" depends on what ran before it. What an answer
 costs the system is the tokens it consumed, priced at list; that is what the
 `cost_usd` column holds, and it is identical on a first run and a replay.
 
-**Latency is not reported from these runs.** Free-tier rate limiting inserts
-waits into the call path, so wall-clock here measures the quota, not the system.
-The answers table still records stage timings, flagged by the run's
-`cache_bypass` being false, which the latency query refuses.
+**Latency is not reported from these runs.** They run through the cache, so a
+replayed call's wall-clock is SQL, not model time. The answers table still
+records stage timings, flagged by the run's `cache_bypass` being false, which
+the latency query refuses.
 """
 
 from __future__ import annotations

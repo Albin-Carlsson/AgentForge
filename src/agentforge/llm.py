@@ -1,4 +1,4 @@
-"""LLM client (Anthropic or Groq) with a content-addressed cache and honest accounting.
+"""Anthropic client with a content-addressed cache and honest accounting.
 
 Three jobs, all of which exist to protect the numbers rather than to be clever:
 
@@ -18,8 +18,8 @@ response for its latency raises, because reporting that as a p95 would be
 fiction -- the harness has the same guard at the run level, and this is the same
 rule one layer down.
 
-Structured output is enforced API-side -- `output_config.format` on Anthropic,
-strict `json_schema` constrained decoding on Groq -- and validated again here. A schema violation raises: there is no repair path, because a model
+Structured output is enforced API-side via `output_config.format`, and validated
+again here. A schema violation raises: there is no repair path, because a model
 that returned the wrong shape is a defect, not a measurement.
 """
 
@@ -27,16 +27,13 @@ from __future__ import annotations
 
 import hashlib
 import json
-import sys
 import time
-import urllib.error
-import urllib.request
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
-from agentforge.config import MODEL_PRICES, MODEL_PROVIDERS
+from agentforge.config import MODEL_PRICES
 from agentforge.db.conn import pool
-from agentforge.errors import ConfigError, MeasurementError, QuotaExhausted, SchemaViolation
+from agentforge.errors import ConfigError, MeasurementError, SchemaViolation
 
 
 def price(model: str, input_tokens: int, output_tokens: int) -> float:
@@ -204,157 +201,6 @@ def default_transport(api_key: str | None = None) -> Transport:
     return call
 
 
-GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
-
-# Groq's 429 body names the limit that was hit. A daily one (TPD / RPD) stops
-# the run, which resumes from the cache after the reset. Anything else is waited
-# out, up to this cap: a large request under the per-minute limit can be told to
-# wait well over a minute, so retry-after alone cannot tell the two apart.
-MAX_RATE_LIMIT_WAIT_S = 600.0
-_DAILY_LIMIT_MARKERS = (b"per day", b"(TPD)", b"(RPD)")
-MAX_RATE_LIMIT_RETRIES = 6
-# A dropped connection or DNS blip is resent unchanged, a bounded number of
-# times. The same request either succeeds or raises; nothing is degraded.
-MAX_NETWORK_RETRIES = 3
-# Groq answers 400 json_validate_failed when a sampled generation did not
-# complete under strict decoding -- observed with an empty failed_generation,
-# i.e. no output at all. The identical request is resent at most this many
-# times, each one logged. A resend cannot select on the verdict: the failed
-# attempt produced none.
-MAX_INVALID_GENERATION_RETRIES = 2
-
-
-def groq_transport(api_key: str | None = None, sleep=time.sleep, post=None) -> Transport:
-    """The Groq transport: OpenAI-compatible chat completions, strict schemas.
-
-    `post` is injectable so the rate-limit handling can be tested without
-    spending quota; it takes (url, headers, body) and returns
-    (status, headers, body).
-    """
-    if api_key is None:
-        from agentforge.settings import settings
-
-        api_key = settings().groq_api_key
-    if not api_key:
-        raise ConfigError("GROQ_API_KEY is unset; Groq-served models need it.")
-
-    import ssl
-
-    import certifi
-
-    # The python.org macOS build ships without a CA bundle, so the default
-    # context cannot verify anything. certifi's bundle, never verification off.
-    tls = ssl.create_default_context(cafile=certifi.where())
-
-    def _post(url: str, headers: dict[str, str], body: bytes) -> tuple[int, dict, bytes]:
-        request = urllib.request.Request(url, data=body, headers=headers, method="POST")
-        try:
-            with urllib.request.urlopen(request, timeout=180, context=tls) as response:
-                return response.status, dict(response.headers), response.read()
-        except urllib.error.HTTPError as exc:
-            return exc.code, dict(exc.headers), exc.read()
-
-    raw_send = post or _post
-
-    def send(url: str, headers: dict[str, str], body: bytes) -> tuple[int, dict, bytes]:
-        for attempt in range(MAX_NETWORK_RETRIES + 1):
-            try:
-                return raw_send(url, headers, body)
-            except (urllib.error.URLError, TimeoutError, ConnectionError):
-                if attempt == MAX_NETWORK_RETRIES:
-                    raise
-                sleep(5.0 * (attempt + 1))
-        raise AssertionError("unreachable")
-
-    def call(*, model, system, messages, max_tokens, schema, thinking) -> dict[str, Any]:
-        payload: dict[str, Any] = {
-            "model": model,
-            "messages": [{"role": "system", "content": system}, *messages],
-            "max_completion_tokens": max_tokens,
-            # Reasoning text is billed either way; not returning it saves bytes
-            # and keeps it out of the cache, where it is never read.
-            "include_reasoning": False,
-        }
-        if thinking is not None:
-            payload.update(thinking)
-        if schema is not None:
-            payload["response_format"] = {
-                "type": "json_schema",
-                "json_schema": {"name": "output", "strict": True, "schema": schema},
-            }
-        body = json.dumps(payload).encode()
-        headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-            # Cloudflare in front of Groq rejects urllib's default agent.
-            "User-Agent": "agentforge/0.1",
-        }
-
-        invalid_generations = 0
-        for _ in range(MAX_RATE_LIMIT_RETRIES + MAX_INVALID_GENERATION_RETRIES + 1):
-            status, response_headers, raw = send(GROQ_URL, headers, body)
-            if (
-                status == 400
-                and b"json_validate_failed" in raw
-                and invalid_generations < MAX_INVALID_GENERATION_RETRIES
-            ):
-                invalid_generations += 1
-                print(
-                    f"warning: {model} returned json_validate_failed; resending "
-                    f"({invalid_generations}/{MAX_INVALID_GENERATION_RETRIES})",
-                    file=sys.stderr, flush=True,
-                )
-                continue
-            if status != 429:
-                break
-            lowered = {k.lower(): v for k, v in response_headers.items()}
-            wait = float(lowered.get("retry-after", "inf"))
-            if any(marker in raw for marker in _DAILY_LIMIT_MARKERS) or wait > MAX_RATE_LIMIT_WAIT_S:
-                raise QuotaExhausted(
-                    f"{model}: daily rate limit reached (retry-after={wait:.0f}s): "
-                    f"{raw[:200].decode(errors='replace')}. Re-run after the reset; "
-                    "completed calls replay from the cache at no cost."
-                )
-            sleep(wait + 0.5)
-        else:
-            raise QuotaExhausted(
-                f"{model}: still rate limited after {MAX_RATE_LIMIT_RETRIES} waits"
-            )
-
-        if status != 200:
-            raise SchemaViolation(f"{model}: HTTP {status}: {raw[:500].decode(errors='replace')}")
-        data = json.loads(raw)
-        choice = data["choices"][0]
-        if choice["finish_reason"] == "length":
-            raise SchemaViolation(
-                f"{model} hit max_tokens={max_tokens} before finishing (reasoning tokens "
-                "count toward it); the output is truncated and must not be parsed"
-            )
-        if choice["finish_reason"] != "stop":
-            raise SchemaViolation(f"{model}: finish_reason={choice['finish_reason']!r}")
-        text = choice["message"]["content"] or ""
-        try:
-            parsed = json.loads(text) if schema is not None else {"text": text}
-        except json.JSONDecodeError as exc:
-            raise SchemaViolation(f"{model} returned unparseable JSON: {exc}") from exc
-        return {
-            "parsed": parsed,
-            "input_tokens": data["usage"]["prompt_tokens"],
-            "output_tokens": data["usage"]["completion_tokens"],
-        }
-
-    return call
-
-
-def transport_for(model: str) -> Transport:
-    provider = MODEL_PROVIDERS.get(model)
-    if provider == "anthropic":
-        return default_transport()
-    if provider == "groq":
-        return groq_transport()
-    raise ConfigError(f"no provider recorded for model {model!r}")
-
-
 def _validate(parsed: Any, schema: dict[str, Any], path: str = "$") -> None:
     """Minimal JSON-Schema check for the subset this project emits.
 
@@ -419,7 +265,7 @@ class LLMClient:
 
     def _call(self) -> Transport:
         if self.transport is None:
-            self.transport = transport_for(self.model)
+            self.transport = default_transport()
         return self.transport
 
     def _cached(self, key: str) -> dict[str, Any] | None:
@@ -529,16 +375,9 @@ class LLMClient:
         return response
 
 
-def _thinking_for(model: str, reasoning_effort: str | None) -> dict[str, Any] | None:
-    """The effort setting in each provider's own shape. Part of the cache key."""
-    if reasoning_effort is None:
-        return None
-    provider = MODEL_PROVIDERS.get(model)
-    if provider == "groq":
-        return {"reasoning_effort": reasoning_effort}
-    if provider == "anthropic":
-        return {"effort": reasoning_effort}
-    raise ConfigError(f"no provider recorded for model {model!r}")
+def _effort(effort: str | None) -> dict[str, Any] | None:
+    """Claude's output_config.effort, carried as `thinking` so it is in the cache key."""
+    return None if effort is None else {"effort": effort}
 
 
 def generator_client(generation: Any, **kwargs: Any) -> LLMClient:
@@ -546,7 +385,7 @@ def generator_client(generation: Any, **kwargs: Any) -> LLMClient:
     return LLMClient(
         model=generation.model,
         max_tokens=generation.max_tokens,
-        thinking=_thinking_for(generation.model, generation.reasoning_effort),
+        thinking=_effort(generation.effort),
         stage="generate",
         **kwargs,
     )
@@ -561,7 +400,7 @@ def judge_client(judge: Any, **kwargs: Any) -> LLMClient:
     return LLMClient(
         model=judge.model,
         max_tokens=JUDGE_MAX_TOKENS,
-        thinking=_thinking_for(judge.model, judge.reasoning_effort),
+        thinking=_effort(judge.effort),
         stage="judge",
         **kwargs,
     )

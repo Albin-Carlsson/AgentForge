@@ -31,9 +31,8 @@ services:
         condition: service_healthy
     environment:
       AF_PG_DSN: postgresql://agentforge:agentforge@db:5432/agentforge
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      # The shipped generator and judge are Groq-served; the API cannot answer without it.
-      GROQ_API_KEY: ${GROQ_API_KEY:?GROQ_API_KEY must be set to serve research requests}
+      # The shipped generator and judge are Claude; the API cannot answer without it.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:?ANTHROPIC_API_KEY must be set to serve research requests}
       LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
       LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
       LANGFUSE_HOST: ${LANGFUSE_HOST:-https://cloud.langfuse.com}

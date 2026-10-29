@@ -136,20 +136,15 @@ generator's training cutoff, so that attribution is clean by construction.
 cheapest one clearing κ ≥ 0.70. An unvalidated LLM judge makes every
 groundedness number above it decorative.
 
-| Judge | κ | agreement | n | labels |
-|---|---|---|---|---|
-| `openai/gpt-oss-20b` | **0.952** | 0.970 | 100 | Claude-drafted, pending human review |
+`[M4]` · the `claude-haiku-5-5` judge's κ, filled from `results/judge-validation.md`.
 
-`gpt-oss-20b` is the cheapest candidate, so no other model was spent on. All
-three disagreements are pairs labelled *unsupported*. Two of them the judge
-called *entailed*: a causal over-reach ("would have prevented") and a
-superlative ("worst of all methods"). That is the direction that inflates
-groundedness, so treat the groundedness column as a mild upper bound.
-
-The labels were drafted by a different model family from the judge, so κ
-measures agreement between models, not one model agreeing with itself. It is
-still not human agreement: every quote is verified verbatim against its chunk,
-but no human has confirmed the labels yet (`make review-labels`).
+The judge is the same model as the generator. The budget was Claude-only on the
+cheapest model, and a stronger Claude judge would have cost most of it. The
+separation that remains is context: the judge sees one claim and one quote,
+never the question or the generator's reasoning. The reference labels were also
+drafted by a Claude model, so κ measures agreement within one model family. It
+is not human agreement: every quote is verified verbatim against its chunk, but
+no human has confirmed the labels yet (`make review-labels`).
 
 κ rather than raw agreement, because the label distribution is skewed: in a
 working system most claims are entailed, so a judge answering "entailed" every
@@ -228,8 +223,8 @@ its own groundedness numbers.
 | Lexical | **real Okapi BM25** via ParadeDB `pg_search` 0.26 (Tantivy) — not `ts_rank` |
 | Dense | pgvector 0.8 HNSW, `bge-base-en-v1.5`, local, on MPS |
 | Fusion | Reciprocal Rank Fusion (rank-based, so scale-free) |
-| Generation | `openai/gpt-oss-120b` via Groq (strict JSON-schema decoding), content-addressed cache |
-| Judge | `openai/gpt-oss-20b` via Groq: a different model from the generator, chosen by κ |
+| Generation | `claude-haiku-5-5`, effort `low`, structured outputs, content-addressed cache |
+| Judge | `claude-haiku-5-5`, sees one claim and one quote only, validated by κ |
 | Eval | own Postgres tables; config-hashed runs; paired bootstrap; Cohen's κ |
 | Tracing | Langfuse Cloud (per-stage spans = the latency decomposition) |
 | Serving | FastAPI, job-based; Docker Compose, two services |
@@ -251,9 +246,9 @@ make ingest-scifact          # BEIR SciFact tier
 make index                   # BM25 + dense
 make eval-retrieval          # the ablation table
 make measure-parser          # parser fidelity
-make test                    # 308 tests, integration-level against the live db
+make test                    # integration-level, against a derived <db>_test database
 
-# Requires GROQ_API_KEY (the free tier is enough, given a few days):
+# Requires ANTHROPIC_API_KEY:
 make load-questions          # the frozen 40-question set
 make load-judge-reference    # 100 reference pairs, quotes verified verbatim
 make validate-judge          # κ table
@@ -311,13 +306,12 @@ The rule needs one sharp edge to be workable, and it is in
   asked, and a drafting error now stays in. Drafting from the gold chunk also tends to share its
   vocabulary, which favours BM25. Questions were paraphrased against that, but
   not measured. The SciFact tier exists partly as an independent check.
-- **No end-to-end latency is reported.** The runs used Groq's free tier, whose
-  rate limiting inserts waits into the call path, so wall-clock would measure
-  the quota rather than the system. Measuring it needs a `cache_bypass` run on
-  an unthrottled key. Retrieval-stage timings are unaffected and are in the run
-  rows.
+- **No end-to-end latency is reported.** The runs go through the cache, so a
+  replayed call's wall-clock is SQL, not model time. Measuring latency needs a
+  `cache_bypass` run, which re-bills every call. Retrieval-stage timings are
+  unaffected and are in the run rows.
 - **Judge reference labels are model-drafted and pending human review.** Until
-  reviewed, κ measures agreement with another model, not with a human, and is
+  reviewed, κ measures agreement within the Claude family, not with a human, and is
   reported with that qualifier attached.
 
 ## Design decisions
